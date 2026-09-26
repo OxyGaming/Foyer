@@ -1,4 +1,4 @@
-import { type ComponentType, lazy } from "react";
+import { type ComponentType, lazy, Suspense } from "react";
 import { Navigate, Outlet, createBrowserRouter, useLocation, useRouteError } from "react-router";
 import { Layout } from "./components/Layout";
 import { PageLoader } from "./components/ui";
@@ -19,6 +19,7 @@ const SpendingPage = page(() => import("./pages/Spending"), "SpendingPage");
 const StatsPage = page(() => import("./pages/Stats"), "StatsPage");
 const StockValuePage = page(() => import("./pages/StockValue"), "StockValuePage");
 const PlanningPage = page(() => import("./pages/Planning"), "PlanningPage");
+const PlanningPrintPage = page(() => import("./pages/PlanningPrint"), "PlanningPrintPage");
 const ProductDetailPage = page(() => import("./pages/ProductDetail"), "ProductDetailPage");
 const ProductEditPage = page(() => import("./pages/ProductEdit"), "ProductEditPage");
 const RecipeDetailPage = page(() => import("./pages/RecipeDetail"), "RecipeDetailPage");
@@ -75,6 +76,15 @@ export const router = createBrowserRouter([
     element: <RequireAuth />,
     errorElement: <RouteError />,
     children: [
+      // Hors de la mise en page de l'appli : pas de barre de navigation sur la feuille imprimée.
+      {
+        path: "/planning/imprimer",
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <PlanningPrintPage />
+          </Suspense>
+        ),
+      },
       {
         element: <Layout />,
         children: [

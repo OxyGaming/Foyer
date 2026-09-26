@@ -52,6 +52,15 @@ export function convertQty(qty: number, from: string | null | undefined, to: str
   return (qty * f.factor) / t.factor;
 }
 
+/** Unité la plus lisible pour un total : 1500 ml → 1,5 L ; 2600 g → 2,6 kg ; 150 cl → 1,5 L. */
+export function readableQty(qty: number, unit: string | null | undefined): { quantity: number; unit: string | null } {
+  const u = parseUnit(unit);
+  const base = qty * u.factor; // en g ou en ml
+  if (u.dim === "mass" && base >= 1000) return { quantity: Math.round((base / 1000) * 100) / 100, unit: "kg" };
+  if (u.dim === "volume" && base >= 1000) return { quantity: Math.round((base / 1000) * 100) / 100, unit: "L" };
+  return { quantity: qty, unit: unit ?? null };
+}
+
 /** Arrondi d'affichage/achat : à l'unité supérieure pour les pièces, au centième sinon. */
 export function roundForPurchase(qty: number, unit: string | null | undefined): number {
   if (unitDimension(unit) === "count") return Math.ceil(qty - 1e-9);
