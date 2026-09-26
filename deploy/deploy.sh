@@ -17,9 +17,12 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 if [ -f "$DATA_DIR/foyer.db" ]; then
   # .backup = copie cohérente même si l'app écrit pendant ce temps.
   sqlite3 "$DATA_DIR/foyer.db" ".backup '$BACKUP_DIR/foyer-$STAMP.db'"
+  echo "   → $BACKUP_DIR/foyer-$STAMP.db"
+  # Garde les 20 dernières sauvegardes.
+  find "$BACKUP_DIR" -maxdepth 1 -name 'foyer-*.db' -printf '%T@ %p\n' | sort -rn | tail -n +21 | cut -d' ' -f2- | xargs -r rm --
+else
+  echo "   (première installation : aucune base à sauvegarder)"
 fi
-# Garde les 20 dernières sauvegardes.
-ls -1t "$BACKUP_DIR"/foyer-*.db 2>/dev/null | tail -n +21 | xargs -r rm --
 
 echo "📥 2/5 Code"
 git fetch origin
