@@ -1,6 +1,6 @@
 import { normalize } from "../../shared/text";
 import { parseIngredientLines } from "./ingredients";
-import type { Ingredient } from "./types";
+import type { Ingredient, RecipeInput } from "./types";
 
 // Import de recettes depuis un texte libre (liste de courses, notes du téléphone,
 // page copiée…). Formats reconnus, mélangeables :
@@ -20,6 +20,8 @@ export type ImportedRecipe = {
   ingredients: Omit<Ingredient, "id">[];
   steps: string[];
   notes: string[];
+  /** Champs lus dans un tableur (portions, temps, tags…). */
+  extra?: Pick<RecipeInput, "description" | "servings" | "prepMinutes" | "cookMinutes" | "tags">;
   /** Nom de la recette dont celle-ci semble être un doublon (dans le texte ou déjà enregistrée). */
   duplicateOf: { name: string; existing: boolean } | null;
 };
@@ -122,6 +124,12 @@ export function parseRecipeText(text: string, existingNames: string[] = []): Par
     }
   });
 
+  markDuplicates(recipes, existingNames);
+  return { recipes: recipes.filter((r) => r.name || r.ingredients.length), ignored };
+}
+
+/** Renseigne duplicateOf : recette déjà enregistrée, ou déjà vue plus haut dans l'import. */
+export function markDuplicates(recipes: ImportedRecipe[], existingNames: string[]) {
   const seen = new Map<string, string>();
   const existing = new Map(existingNames.map((n) => [recipeKey(n), n]));
   for (const r of recipes) {
@@ -132,5 +140,4 @@ export function parseRecipeText(text: string, existingNames: string[] = []): Par
     else if (seen.has(k)) r.duplicateOf = { name: seen.get(k)!, existing: false };
     else seen.set(k, r.name);
   }
-  return { recipes: recipes.filter((r) => r.name || r.ingredients.length), ignored };
 }

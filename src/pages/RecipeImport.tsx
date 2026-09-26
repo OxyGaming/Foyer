@@ -1,8 +1,9 @@
-import { ChevronDown, FileText, TriangleAlert } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { PageHeader, Spinner } from "@/components/ui";
+import { downloadRecipeTemplate, readRecipeWorkbook } from "@/lib/excelFile";
 import { formatQty } from "@/lib/format";
 import { useImportRecipes, useRecipes } from "@/lib/queries";
 import { type ImportedRecipe, type ParsedImport, parseRecipeText } from "@/lib/recipeImport";
@@ -22,6 +23,8 @@ export function RecipeImportPage() {
   const importRecipes = useImportRecipes();
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
+  const excelRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
   const [parsed, setParsed] = useState<ParsedImport | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -29,23 +32,48 @@ export function RecipeImportPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [tag, setTag] = useState("");
 
-  function analyse(source = text) {
-    const p = parseRecipeText(source, (recipes.data ?? []).map((r) => r.name));
+  const existingNames = () => (recipes.data ?? []).map((r) => r.name);
+
+  function show(p: ParsedImport, emptyMessage: string) {
     setParsed(p);
     setNames(Object.fromEntries(p.recipes.map((r) => [r.key, r.name])));
     // Les doublons sont décochés d'office : on peut toujours les recocher.
     setSelected(new Set(p.recipes.filter((r) => !r.duplicateOf).map((r) => r.key)));
     setOpen(null);
-    if (!p.recipes.length) toast.error("Aucune recette reconnue dans ce texte");
+    if (!p.recipes.length) toast.error(p.ignored[0] ?? emptyMessage);
   }
 
-  async function onFile(e: ChangeEvent<HTMLInputElement>) {
+  const analyse = (source = text) => show(parseRecipeText(source, existingNames()), "Aucune recette reconnue dans ce texte");
+
+  async function onTextFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     const content = await file.text();
     setText(content);
     analyse(content);
+  }
+
+  async function onExcelFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    try {
+      show(await readRecipeWorkbook(file, existingNames()), "Aucune recette trouvée dans ce fichier");
+    } catch {
+      toast.error("Fichier illisible : enregistrez-le au format Excel (.xlsx)");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function template() {
+    try {
+      await downloadRecipeTemplate();
+    } catch {
+      toast.error("Téléchargement impossible (connexion ?)");
+    }
   }
 
   const chosen = useMemo(() => (parsed?.recipes ?? []).filter((r) => selected.has(r.key)), [parsed, selected]);
@@ -63,13 +91,17 @@ export function RecipeImportPage() {
   async function submit() {
     const t = tag.trim().replace(/^#/, "");
     const res = await importRecipes.mutateAsync(
-      chosen.map((r) => ({
-        name: (names[r.key] ?? r.name).trim(),
-        ingredients: r.ingredients,
-        steps: r.steps.map((text) => ({ text })),
-        notes: r.notes.join("\n") || null,
-        ...(t ? { tags: [t] } : {}),
-      })),
+      chosen.map((r) => {
+        const tags = [...(r.extra?.tags ?? []), ...(t ? [t] : [])];
+        return {
+          ...r.extra,
+          name: (names[r.key] ?? r.name).trim(),
+          ingredients: r.ingredients,
+          steps: r.steps.map((text) => ({ text })),
+          notes: r.notes.join("\n") || null,
+          ...(tags.length ? { tags } : {}),
+        };
+      }),
     );
     toast.success(`${res.count} recette${res.count > 1 ? "s" : ""} importée${res.count > 1 ? "s" : ""}`);
     navigate("/recettes", { replace: true });
@@ -79,35 +111,55 @@ export function RecipeImportPage() {
     return (
       <>
         <PageHeader back="/recettes" title="Importer des recettes" />
-        <div className="space-y-4 px-4 pb-8">
-          <p className="text-ink-2">
-            Collez votre liste (notes du téléphone, liste de courses…) : un titre par recette, puis ses ingrédients en liste. Rien n'est enregistré avant la
-            vérification.
-          </p>
-          <textarea
-            className="input min-h-72 font-mono text-sm"
-            placeholder={EXAMPLE}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            autoFocus
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
-              <FileText className="size-4" /> Fichier texte
-            </button>
-            <button type="button" className="btn-primary" disabled={!text.trim() || recipes.isPending} onClick={() => analyse()}>
-              Analyser
-            </button>
-          </div>
-          <input ref={fileRef} type="file" accept=".txt,.md,text/plain,text/markdown" className="hidden" onChange={onFile} />
-          <details className="text-sm text-ink-2">
-            <summary className="cursor-pointer font-medium text-ink">Formats reconnus</summary>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              <li>Titre : ligne avec case (☐, ☑, [ ]), « # Titre », ou ligne suivie d'une liste</li>
-              <li>Ingrédient : ligne commençant par *, - ou • (« 2 boîtes de thon », « 5-6 tomates », « Sel, poivre »)</li>
-              <li>Étapes : lignes numérotées (1. 2. …) ou placées après « Préparation : »</li>
-              <li>Les lignes seules comme « Semaine 9/10 » sont ignorées</li>
-            </ul>
+        <div className="space-y-5 px-4 pb-8">
+          <section className="card space-y-3 p-4">
+            <div className="flex items-center gap-3">
+              <FileSpreadsheet className="size-8 shrink-0 text-ok" />
+              <div>
+                <p className="font-semibold">Depuis un fichier Excel</p>
+                <p className="text-sm text-ink-2">Une ligne par recette, une ligne par ingrédient : rien à deviner.</p>
+              </div>
+            </div>
+            <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+              <li>Téléchargez le modèle et remplissez-le (Excel, LibreOffice, Google Sheets…).</li>
+              <li>Choisissez le fichier : un aperçu s'affiche avant tout enregistrement.</li>
+            </ol>
+            <div className="grid grid-cols-2 gap-3">
+              <button type="button" className="btn-soft" onClick={template}>
+                <Download className="size-4" /> Modèle
+              </button>
+              <button type="button" className="btn-primary" disabled={busy || recipes.isPending} onClick={() => excelRef.current?.click()}>
+                {busy ? <Spinner className="text-brand-ink" /> : <><FileSpreadsheet className="size-4" /> Choisir le fichier</>}
+              </button>
+            </div>
+            <input
+              ref={excelRef}
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              onChange={onExcelFile}
+            />
+          </section>
+
+          <details className="card p-4">
+            <summary className="cursor-pointer font-semibold">Ou coller du texte</summary>
+            <div className="mt-3 space-y-3">
+              <textarea className="input min-h-60 font-mono text-sm" placeholder={EXAMPLE} value={text} onChange={(e) => setText(e.target.value)} />
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
+                  <FileText className="size-4" /> Fichier texte
+                </button>
+                <button type="button" className="btn-primary" disabled={!text.trim() || recipes.isPending} onClick={() => analyse()}>
+                  Analyser
+                </button>
+              </div>
+              <input ref={fileRef} type="file" accept=".txt,.md,text/plain,text/markdown" className="hidden" onChange={onTextFile} />
+              <ul className="list-disc space-y-1 pl-5 text-sm text-ink-2">
+                <li>Titre : ligne avec case (☐, ☑, [ ]), « # Titre », ou ligne suivie d'une liste</li>
+                <li>Ingrédient : ligne commençant par *, - ou • (« 2 boîtes de thon », « 5-6 tomates », « Sel, poivre »)</li>
+                <li>Étapes : lignes numérotées (1. 2. …) ou placées après « Préparation : »</li>
+              </ul>
+            </div>
           </details>
         </div>
       </>
@@ -130,7 +182,7 @@ export function RecipeImportPage() {
             Tout décocher
           </button>
           <button className="chip ml-auto" onClick={() => setParsed(null)}>
-            Modifier le texte
+            Recommencer
           </button>
         </div>
 
@@ -205,6 +257,7 @@ function ImportRow({
           <p className="text-xs text-ink-2">
             {r.ingredients.length} ingrédient{r.ingredients.length > 1 ? "s" : ""}
             {r.steps.length > 0 && ` · ${r.steps.length} étape${r.steps.length > 1 ? "s" : ""}`}
+            {r.extra?.servings != null && ` · ${r.extra.servings} pers.`}
           </p>
           {r.duplicateOf && (
             <p className="mt-1 flex items-center gap-1 text-xs text-watch">
