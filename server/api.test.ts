@@ -323,3 +323,23 @@ describe("achats, prix et inventaire (phase 3)", () => {
     expect((await b.call("GET", "/purchases")).body).toHaveLength(0);
   });
 });
+
+describe("validation des achats répartie sur plusieurs stocks", () => {
+  it("un achat de 12 rangé en 6 + 6 : un seul achat, deux lignes de stock", async () => {
+    const c = await userWithHousehold("repartition@foyer.test", "Foyer répartition");
+    const [l1, l2] = (await c.call("GET", "/locations")).body;
+    const item = (await c.call("POST", "/shopping/items", { name: "Papier toilette", quantity: 12 })).body;
+    await c.call("PATCH", `/shopping/items/${item.id}`, { checked: true });
+    const r = await c.call("POST", "/shopping/stock-in", {
+      entries: [{ itemId: item.id, addToStock: true, splits: [{ locationId: l1.id, quantity: 6 }, { locationId: l2.id, quantity: 6 }], totalCents: 689 }],
+    });
+    expect(r.body.stocked).toBe(1);
+    const p = (await c.call("GET", "/products")).body.find((x: { name: string }) => x.name === "Papier toilette");
+    expect(p.quantity).toBe(12);
+    expect(p.stock.map((s: { locationId: string; quantity: number }) => [s.locationId, s.quantity]).sort()).toEqual([[l1.id, 6], [l2.id, 6]].sort());
+    const detail = (await c.call("GET", `/products/${p.id}`)).body;
+    expect(detail.purchases).toHaveLength(1);
+    expect(detail.purchases[0]).toMatchObject({ quantity: 12, totalCents: 689 });
+    expect(detail.movements.filter((m: { type: string }) => m.type === "purchase")).toHaveLength(2);
+  });
+});

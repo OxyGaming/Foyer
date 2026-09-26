@@ -149,7 +149,15 @@ export function useClearChecked() {
   });
 }
 
-export type StockInEntry = { itemId: string; addToStock: boolean; quantity: number | null; locationId: string | null; totalCents: number | null };
+export type StockInEntry = {
+  itemId: string;
+  addToStock: boolean;
+  quantity: number | null;
+  locationId: string | null;
+  /** Répartition sur plusieurs emplacements (prioritaire sur quantity/locationId). */
+  splits?: { locationId: string | null; quantity: number }[];
+  totalCents: number | null;
+};
 
 export function useStockIn() {
   const qc = useQueryClient();

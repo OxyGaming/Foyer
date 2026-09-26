@@ -251,6 +251,9 @@ shoppingRoutes.post("/stock-in", async (c) => {
             addToStock: z.boolean(),
             quantity: optNumber,
             locationId: optId,
+            /** Répartition sur plusieurs emplacements (prioritaire sur quantity/locationId). */
+            // locationId absent = emplacement habituel ; null ou "" = sans emplacement (choix explicite).
+            splits: z.array(z.object({ locationId: z.string().max(64).nullish(), quantity: z.number().finite().min(0).max(1e6) })).max(20).optional(),
             totalCents: z.number().int().min(0).max(10_000_000).nullish(),
           }),
         )
@@ -272,7 +275,12 @@ shoppingRoutes.post("/stock-in", async (c) => {
         // Article libre (« Papier toilette ») : on crée le produit à cette occasion.
         if (!product && item.name) product = await tx.product.create({ data: { householdId, name: item.name, unit: item.unit } });
         if (product) {
-          const locationId = e.locationId && locations.has(e.locationId) ? e.locationId : await defaultStockLocation(tx, product);
+          const fallback = await defaultStockLocation(tx, product);
+          const where = (id: string | null) => (id && locations.has(id) ? id : fallback);
+          const locationId = where(e.locationId);
+          // Répartition : 6 rouleaux à la salle de bain + 6 au garage = un seul achat de 12.
+          const splits = (e.splits ?? []).filter((sp) => sp.quantity > 0);
+          const quantity = splits.length ? splits.reduce((t, sp) => t + sp.quantity, 0) : e.quantity;
           // Produit sans unité ni stock chiffré : il adopte l'unité de l'article acheté.
           let unit = product.unit;
           if (!product.unit && item.unit && (await tx.stockItem.count({ where: { productId: product.id, quantity: { not: null } } })) === 0) {
@@ -280,10 +288,15 @@ shoppingRoutes.post("/stock-in", async (c) => {
             unit = item.unit;
           }
           const purchase = await tx.purchase.create({
-            data: { householdId, productId: product.id, quantity: e.quantity, unit, totalCents: e.totalCents ?? null, storeId, userId: c.var.userId },
+            data: { householdId, productId: product.id, quantity, unit, totalCents: e.totalCents ?? null, storeId, userId: c.var.userId },
           });
-          if (e.quantity != null && e.quantity > 0) {
-            await addToStock(tx, { householdId, productId: product.id, locationId, delta: e.quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note: body.storeName ? `Courses · ${body.storeName}` : "Courses" });
+          const note = body.storeName ? `Courses · ${body.storeName}` : "Courses";
+          if (splits.length) {
+            for (const sp of splits) {
+              await addToStock(tx, { householdId, productId: product.id, locationId: sp.locationId === undefined ? fallback : sp.locationId && locations.has(sp.locationId) ? sp.locationId : null, delta: sp.quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note });
+            }
+          } else if (e.quantity != null && e.quantity > 0) {
+            await addToStock(tx, { householdId, productId: product.id, locationId, delta: e.quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note });
           } else {
             // Quantité inconnue : le produit est « présent » à cet emplacement.
             const line = await tx.stockItem.findFirst({ where: { productId: product.id, locationId } });

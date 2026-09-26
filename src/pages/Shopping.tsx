@@ -1,5 +1,5 @@
 import { useIsMutating } from "@tanstack/react-query";
-import { AlertTriangle, Check, ChevronDown, PackageCheck, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, PackageCheck, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { addDays, formatDayMonth, todayIso, weekStart } from "../../shared/dates";
 import { compatibleUnits, convertQty } from "../../shared/units";
@@ -163,16 +163,24 @@ function EditItemForm({ item, onClose }: { item: ShoppingItem; onClose: () => vo
   );
 }
 
-/** Retour de courses : chaque article coché peut être rangé (quantité, emplacement, prix facultatifs). */
+/** Validation de l'achat : chaque article coché est ajouté au stock (réparti si besoin) et l'achat enregistré. */
 function StockInSheet({ open, items, products, onClose }: { open: boolean; items: ShoppingItem[]; products: Map<string, Product>; onClose: () => void }) {
   return (
-    <Sheet open={open} onClose={onClose} title="Ranger les achats">
+    <Sheet open={open} onClose={onClose} title="Valider l'achat">
       {open && <StockInForm items={items} products={products} onDone={onClose} />}
     </Sheet>
   );
 }
 
-type StockRow = { on: boolean; qty: number | null; locationId: string; price: string };
+type Split = { key: string; locationId: string; qty: number | null };
+type StockRow = { on: boolean; splits: Split[]; price: string };
+let splitSeq = 0;
+const newSplit = (locationId: string, qty: number | null): Split => ({ key: `s${splitSeq++}`, locationId, qty });
+
+/** Emplacement proposé : l'habituel, sinon l'unique endroit où le produit est déjà rangé. */
+function suggestedLocation(p: Product | undefined) {
+  return p?.defaultLocationId ?? (p?.stock.length === 1 ? p.stock[0].locationId : null) ?? "";
+}
 
 function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; products: Map<string, Product>; onDone: () => void }) {
   const locations = useLocations();
@@ -187,7 +195,7 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
       const q = itemQty(i);
       // Quantité convertie dans l'unité du stock quand c'est possible (500 ml → 0,5 L).
       const qty = q != null && p?.unit && compatibleUnits(i.unit, p.unit) ? convertQty(q, i.unit, p.unit) : q;
-      init[i.id] = { on: true, qty: qty ? Math.round(qty * 1000) / 1000 : null, locationId: p?.defaultLocationId ?? "", price: "" };
+      init[i.id] = { on: true, splits: [newSplit(suggestedLocation(p), qty ? Math.round(qty * 1000) / 1000 : null)], price: "" };
     }
     return init;
   });
@@ -199,14 +207,24 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
     const entries: StockInEntry[] = items.map((i) => {
       const r = rows[i.id];
       const price = r ? parseNum(r.price) : null;
-      return { itemId: i.id, addToStock: !!r?.on, quantity: r?.qty ?? null, locationId: r?.locationId || null, totalCents: price != null ? Math.round(price * 100) : null };
+      const splits = (r?.splits ?? []).filter((s) => s.qty != null && s.qty > 0).map((s) => ({ locationId: s.locationId || null, quantity: s.qty! }));
+      const first = r?.splits[0];
+      return {
+        itemId: i.id,
+        addToStock: !!r?.on,
+        // Sans quantité saisie : le produit est simplement marqué présent au premier emplacement.
+        quantity: splits.length ? null : (first?.qty ?? null),
+        locationId: first?.locationId || null,
+        splits: splits.length ? splits : undefined,
+        totalCents: price != null ? Math.round(price * 100) : null,
+      };
     });
     stockIn.mutate({ entries, storeName: store.trim() || null }, { onSuccess: onDone });
   }
 
   return (
     <>
-      <p className="mb-3 text-sm text-ink-2">Les articles cochés sont ajoutés au stock et l'achat est enregistré. Magasin, prix et emplacement sont facultatifs.</p>
+      <p className="mb-3 text-sm text-ink-2">Chaque article est ajouté à son stock et l'achat est enregistré. « Répartir » permet de ranger un article à plusieurs endroits. Magasin et prix sont facultatifs.</p>
       <input className="input mb-3" list="stock-in-stores" placeholder="Magasin (facultatif)" value={store} onChange={(e) => setStore(e.target.value)} />
       <datalist id="stock-in-stores">{(stores.data ?? []).map((s) => <option key={s.id} value={s.name} />)}</datalist>
       <ul className="space-y-2">
@@ -223,23 +241,56 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
                 {!p && <span className="text-xs text-ink-3">nouveau produit</span>}
               </label>
               {r.on && (
-                <div className="mt-2 grid grid-cols-[5.5rem_1fr_5.5rem] gap-2">
-                  <div className="relative">
-                    <NumberInput value={r.qty} onChange={(v) => set({ qty: v })} placeholder="Qté" className="input px-2.5 py-2 pr-8" />
-                    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">{p?.unit ?? i.unit ?? ""}</span>
-                  </div>
-                  <select className="input px-2 py-2 text-sm" value={r.locationId} onChange={(e) => set({ locationId: e.target.value })} aria-label="Emplacement">
-                    <option value="">Sans emplacement</option>
-                    {locs.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {" ".repeat(l.depth * 2)}
-                        {l.icon} {l.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="relative">
-                    <input className="input px-2.5 py-2 pr-6" inputMode="decimal" placeholder="Prix" value={r.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9.,]/g, "") })} aria-label="Prix total" />
-                    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">€</span>
+                <div className="mt-2 space-y-2">
+                  {r.splits.map((sp, idx) => {
+                    const setSplit = (patch: Partial<Split>) => set({ splits: r.splits.map((x) => (x.key === sp.key ? { ...x, ...patch } : x)) });
+                    return (
+                      <div key={sp.key} className="grid grid-cols-[5.5rem_1fr_auto] gap-2">
+                        <div className="relative">
+                          <NumberInput value={sp.qty} onChange={(v) => setSplit({ qty: v })} placeholder="Qté" className="input px-2.5 py-2 pr-8" />
+                          <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">{p?.unit ?? i.unit ?? ""}</span>
+                        </div>
+                        <select className="input px-2 py-2 text-sm" value={sp.locationId} onChange={(e) => setSplit({ locationId: e.target.value })} aria-label={`Emplacement ${idx + 1}`}>
+                          <option value="">Sans emplacement</option>
+                          {locs.map((l) => (
+                            <option key={l.id} value={l.id}>
+                              {" ".repeat(l.depth * 2)}
+                              {l.icon} {l.name}
+                            </option>
+                          ))}
+                        </select>
+                        {r.splits.length > 1 ? (
+                          <button type="button" className="icon-btn size-10" onClick={() => set({ splits: r.splits.filter((x) => x.key !== sp.key) })} aria-label="Retirer cet emplacement">
+                            <X className="size-4" />
+                          </button>
+                        ) : (
+                          <span className="w-0" />
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="btn-ghost min-h-9 px-2 text-sm text-brand"
+                      onClick={() => {
+                        // Nouvel emplacement : le premier pas encore utilisé pour cet article.
+                        const used = new Set(r.splits.map((s) => s.locationId));
+                        const next = locs.find((l) => !used.has(l.id))?.id ?? "";
+                        set({ splits: [...r.splits, newSplit(next, null)] });
+                      }}
+                    >
+                      <Plus className="size-4" /> Répartir
+                    </button>
+                    {r.splits.length > 1 && (
+                      <span className="text-xs text-ink-2">
+                        Total : <b>{formatQty(r.splits.reduce((t, s) => t + (s.qty ?? 0), 0), p?.unit ?? i.unit)}</b>
+                      </span>
+                    )}
+                    <div className="relative ml-auto w-24">
+                      <input className="input px-2.5 py-2 pr-6" inputMode="decimal" placeholder="Prix" value={r.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9.,]/g, "") })} aria-label="Prix total" />
+                      <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">€</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -249,7 +300,7 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
       </ul>
       <p className="mt-3 text-xs text-ink-3">Les articles décochés ici sont simplement retirés de la liste.</p>
       <button className="btn-primary mt-3 w-full" disabled={stockIn.isPending} onClick={submit}>
-        {stockIn.isPending ? <Spinner className="text-brand-ink" /> : <><PackageCheck className="size-4" /> Ranger {selected} article{selected > 1 ? "s" : ""}</>}
+        {stockIn.isPending ? <Spinner className="text-brand-ink" /> : <><PackageCheck className="size-4" /> Valider et ranger {selected} article{selected > 1 ? "s" : ""}</>}
       </button>
     </>
   );
@@ -325,7 +376,7 @@ export function ShoppingPage() {
           </button>
         }
       />
-      <div className="space-y-4 px-4">
+      <div className="space-y-4 px-4 pb-20">
         <form onSubmit={submit} className="flex gap-2">
           <input className="input flex-1" list="shopping-products" placeholder="Ajouter : lessive, 6 œufs, 2 L de lait…" value={text} onChange={(e) => setText(e.target.value)} enterKeyHint="done" />
           <datalist id="shopping-products">{(products.data ?? []).filter((p) => p.name).map((p) => <option key={p.id} value={p.name} />)}</datalist>
@@ -402,24 +453,30 @@ export function ShoppingPage() {
                     <ItemRow key={i.id} item={i} product={i.productId ? productMap.get(i.productId) : undefined} onEdit={() => setEditing(i)} />
                   ))}
                 </div>
-                <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-                  <button className="btn-primary" onClick={() => setStocking(true)} disabled={!online}>
-                    <PackageCheck className="size-4" /> Ranger dans le stock
-                  </button>
-                  <button
-                    className="btn-soft"
-                    disabled={!online || clear.isPending}
-                    onClick={async () => (await ask("Vider le panier ?", { message: "Les articles cochés sont retirés de la liste sans être ajoutés au stock.", confirm: "Vider" })) && clear.mutate()}
-                  >
-                    Vider
-                  </button>
-                </div>
-                {!online && <p className="mt-1.5 text-xs text-ink-3">Le rangement dans le stock sera possible au retour du réseau.</p>}
+                <button
+                  className="btn-ghost mt-2 min-h-9 w-full text-sm"
+                  disabled={!online || clear.isPending}
+                  onClick={async () => (await ask("Vider le panier sans ranger ?", { message: "Les articles cochés sont retirés de la liste sans être ajoutés au stock.", confirm: "Vider" })) && clear.mutate()}
+                >
+                  Retirer du panier sans ranger
+                </button>
               </section>
             )}
           </>
         )}
       </div>
+
+      {/* Toujours à portée de pouce dès qu'un article est dans le panier. */}
+      {checked.length > 0 && (
+        <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 px-4">
+          <div className="mx-auto max-w-3xl">
+            <button className="btn-primary w-full shadow-xl" onClick={() => setStocking(true)} disabled={!online}>
+              <PackageCheck className="size-4" /> Valider l'achat · {checked.length} article{checked.length > 1 ? "s" : ""}
+            </button>
+            {!online && <p className="mt-1 rounded-lg bg-surface/90 px-2 py-1 text-center text-xs text-ink-2">La validation sera possible au retour du réseau (les cases cochées sont gardées).</p>}
+          </div>
+        </div>
+      )}
       <EditItemSheet item={editing} onClose={() => setEditing(null)} />
       <StockInSheet open={stocking} items={checked} products={productMap} onClose={() => setStocking(false)} />
       {dialog}
