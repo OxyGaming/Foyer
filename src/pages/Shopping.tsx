@@ -8,6 +8,7 @@ import { EmptyState, NumberInput, PageHeader, PageLoader, Sheet, Spinner, Thumb,
 import { formatQty, parseNum } from "@/lib/format";
 import { parseIngredientLine } from "@/lib/ingredients";
 import { clientId } from "@/lib/planQueries";
+import { useStores } from "@/lib/purchaseQueries";
 import { useCategories, useLocations, useProducts } from "@/lib/queries";
 import {
   isCovered,
@@ -176,6 +177,8 @@ type StockRow = { on: boolean; qty: number | null; locationId: string; price: st
 function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; products: Map<string, Product>; onDone: () => void }) {
   const locations = useLocations();
   const stockIn = useStockIn();
+  const stores = useStores();
+  const [store, setStore] = useState("");
   // Initialisé une seule fois à l'ouverture (les saisies ne sont pas écrasées).
   const [rows, setRows] = useState<Record<string, StockRow>>(() => {
     const init: Record<string, StockRow> = {};
@@ -198,12 +201,14 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
       const price = r ? parseNum(r.price) : null;
       return { itemId: i.id, addToStock: !!r?.on, quantity: r?.qty ?? null, locationId: r?.locationId || null, totalCents: price != null ? Math.round(price * 100) : null };
     });
-    stockIn.mutate(entries, { onSuccess: onDone });
+    stockIn.mutate({ entries, storeName: store.trim() || null }, { onSuccess: onDone });
   }
 
   return (
     <>
-      <p className="mb-3 text-sm text-ink-2">Les articles cochés sont ajoutés au stock et l'achat est enregistré. Prix et emplacement sont facultatifs.</p>
+      <p className="mb-3 text-sm text-ink-2">Les articles cochés sont ajoutés au stock et l'achat est enregistré. Magasin, prix et emplacement sont facultatifs.</p>
+      <input className="input mb-3" list="stock-in-stores" placeholder="Magasin (facultatif)" value={store} onChange={(e) => setStore(e.target.value)} />
+      <datalist id="stock-in-stores">{(stores.data ?? []).map((s) => <option key={s.id} value={s.name} />)}</datalist>
       <ul className="space-y-2">
         {items.map((i) => {
           const r = rows[i.id];

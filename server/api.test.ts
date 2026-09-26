@@ -240,3 +240,86 @@ describe("planning et courses (phase 2)", () => {
     expect((await b.call("POST", `/plan/${mine.id}/cook`, { consume: [{ productId: oeufs, quantity: 1 }] })).status).toBe(404);
   });
 });
+
+describe("achats, prix et inventaire (phase 3)", () => {
+  let c: Client;
+  let lessive: any;
+  beforeAll(async () => {
+    c = await userWithHousehold("prix@foyer.test", "Foyer prix");
+    lessive = (await c.call("POST", "/products", { name: "Lessive", quantity: 1, minStock: 2, targetStock: 4 })).body;
+  });
+
+  it("enregistre un achat : prix unitaire, magasin créé une fois, stock augmenté", async () => {
+    const r = await c.call("POST", "/purchases", { productId: lessive.id, date: "2026-09-12", quantity: 2, totalCents: 598, storeName: "Leclerc" });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ quantity: 2, totalCents: 598, store: { name: "Leclerc" } });
+    await c.call("POST", "/purchases", { productId: lessive.id, date: "2026-09-20", quantity: 1, totalCents: 349, storeName: "leclerc", isPromo: true });
+    expect((await c.call("GET", "/purchases/stores")).body).toHaveLength(1);
+    const p = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p.quantity).toBe(4);
+    expect(p.purchases).toHaveLength(2);
+    expect(p.pricing).toMatchObject({ count: 2, best: { unitCents: 299 }, last: { unitCents: 349, isPromo: true } });
+    expect(p.pricing.avgCents).toBeCloseTo(315.67, 1);
+    expect(p.pricing.history).toHaveLength(2);
+  });
+
+  it("résume les prix dans la liste, sans historique, et rien sans prix", async () => {
+    const list = (await c.call("GET", "/products")).body;
+    const inList = list.find((x: { id: string }) => x.id === lessive.id).pricing;
+    expect(inList.count).toBe(2);
+    expect(inList.history).toBeUndefined();
+    const sansPrix = (await c.call("POST", "/products", { name: "Sel", quantity: 1 })).body;
+    await c.call("POST", "/purchases", { productId: sansPrix.id, quantity: 1 });
+    expect((await c.call("GET", `/products/${sansPrix.id}`)).body.pricing).toBeNull();
+  });
+
+  it("garde le résumé des prix après un +1 (réponse mise en cache par l'appli)", async () => {
+    const adj = await c.call("POST", `/stock/${lessive.stock[0].id}/adjust`, { delta: 1 });
+    expect(adj.body.pricing?.count).toBe(2);
+  });
+
+  it("corrige et supprime un achat sans toucher au stock", async () => {
+    const [latest] = (await c.call("GET", `/products/${lessive.id}`)).body.purchases;
+    await c.call("PATCH", `/purchases/${latest.id}`, { totalCents: 299 });
+    const p1 = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p1.pricing.avgCents).toBeCloseTo(299);
+    await c.call("DELETE", `/purchases/${latest.id}`);
+    const p2 = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p2.purchases).toHaveLength(1);
+    expect(p2.quantity).toBe(p1.quantity);
+  });
+
+  it("liste les achats d'une période", async () => {
+    const r = (await c.call("GET", "/purchases?from=2026-09-01&to=2026-09-15")).body;
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ totalCents: 598, product: { name: "Lessive" } });
+  });
+
+  it("range les courses avec le magasin du passage en caisse", async () => {
+    await c.call("POST", "/shopping/items", { name: "Lessive", quantity: 3 });
+    const item = (await c.call("GET", "/shopping")).body.items.find((i: { name: string }) => i.name === "Lessive");
+    await c.call("POST", "/shopping/stock-in", { storeName: "Lidl", entries: [{ itemId: item.id, addToStock: true, quantity: 3, totalCents: 900 }] });
+    const p = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p.purchases[0]).toMatchObject({ quantity: 3, totalCents: 900, store: { name: "Lidl" } });
+  });
+
+  it("inventaire groupé : corrige et historise les écarts", async () => {
+    const before = (await c.call("GET", `/products/${lessive.id}`)).body;
+    const line = before.stock[0];
+    const r = await c.call("POST", "/inventory", { entries: [{ productId: lessive.id, locationId: line.locationId, quantity: 2 }] });
+    expect(r.body).toEqual({ counted: 1, corrected: 1 });
+    expect((await c.call("GET", `/products/${lessive.id}`)).body.quantity).toBe(2);
+    const hist = (await c.call("GET", "/inventory/history")).body;
+    expect(hist[0]).toMatchObject({ delta: 2 - before.quantity, quantityAfter: 2, product: { name: "Lessive" } });
+  });
+
+  it("isole achats et inventaire entre foyers", async () => {
+    const [purchase] = (await c.call("GET", `/products/${lessive.id}`)).body.purchases;
+    expect((await b.call("POST", "/purchases", { productId: lessive.id, quantity: 1 })).status).toBe(404);
+    expect((await b.call("PATCH", `/purchases/${purchase.id}`, { totalCents: 1 })).status).toBe(404);
+    await b.call("DELETE", `/purchases/${purchase.id}`);
+    expect((await c.call("GET", `/products/${lessive.id}`)).body.purchases.some((x: { id: string }) => x.id === purchase.id)).toBe(true);
+    expect((await b.call("POST", "/inventory", { entries: [{ productId: lessive.id, quantity: 99 }] })).body.corrected).toBe(0);
+    expect((await b.call("GET", "/purchases")).body).toHaveLength(0);
+  });
+});

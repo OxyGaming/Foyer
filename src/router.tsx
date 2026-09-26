@@ -4,6 +4,9 @@ import { PageLoader } from "./components/ui";
 import { ApiError } from "./lib/api";
 import { useMe } from "./lib/queries";
 import { HomePage } from "./pages/Home";
+import { InventoryPage } from "./pages/Inventory";
+import { SpendingPage } from "./pages/Spending";
+import { StockValuePage } from "./pages/StockValue";
 import { LoginPage, RegisterPage } from "./pages/Login";
 import { PlanningPage } from "./pages/Planning";
 import { ProductDetailPage } from "./pages/ProductDetail";
@@ -74,6 +77,9 @@ export const router = createBrowserRouter([
           { path: "/courses", element: <ShoppingPage /> },
           { path: "/stock", element: <StockPage /> },
           { path: "/stock/alertes", element: <RestockPage /> },
+          { path: "/stock/valeur", element: <StockValuePage /> },
+          { path: "/stock/inventaire", element: <InventoryPage /> },
+          { path: "/achats", element: <SpendingPage /> },
           { path: "/produits/nouveau", element: <ProductEditPage /> },
           { path: "/produits/:id", element: <ProductDetailPage /> },
           { path: "/produits/:id/modifier", element: <ProductEditPage /> },

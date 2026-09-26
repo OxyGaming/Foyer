@@ -154,11 +154,13 @@ export type StockInEntry = { itemId: string; addToStock: boolean; quantity: numb
 export function useStockIn() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (entries: StockInEntry[]) => api.post<ShoppingList & { stocked: number }>("/shopping/stock-in", { entries }),
+    mutationFn: (body: { entries: StockInEntry[]; storeName: string | null }) => api.post<ShoppingList & { stocked: number }>("/shopping/stock-in", body),
     onSuccess: (d) => {
       qc.setQueryData(shoppingKey, d);
       qc.invalidateQueries({ queryKey: keys.products });
       qc.invalidateQueries({ queryKey: keys.locations });
+      qc.invalidateQueries({ queryKey: ["purchases"] });
+      qc.invalidateQueries({ queryKey: ["stores"] });
       toast.success(d.stocked ? `${d.stocked} produit(s) rangé(s) dans le stock` : "Liste mise à jour");
     },
     onError,

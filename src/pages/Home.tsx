@@ -5,7 +5,10 @@ import { addDays, MEAL_LABEL, type Meal, todayIso, weekDays, weekStart } from ".
 import { AddMealSheet, type Slot, useMealSlots } from "@/components/MealSheets";
 import { QuickProductSheet } from "@/components/QuickProductSheet";
 import { Thumb } from "@/components/ui";
+import { formatCents } from "@/lib/format";
 import { usePlan } from "@/lib/planQueries";
+import { usePurchases } from "@/lib/purchaseQueries";
+import { totalStockValue } from "./Stock";
 import { useMe, useProducts, useRecipes } from "@/lib/queries";
 import { toBuyCount, useShopping } from "@/lib/shoppingQueries";
 import type { RecipeSummary } from "@/lib/types";
@@ -72,6 +75,10 @@ export function HomePage() {
   }, [products.data]);
   const alerts = stats.out + stats.low + stats.watch;
   const toBuy = toBuyCount(shopping.data?.items);
+  const stockValue = totalStockValue(products.data);
+  const recentPurchases = usePurchases(addDays(today, -29), today);
+  const priced = (recentPurchases.data ?? []).filter((p) => p.totalCents != null);
+  const spent30 = priced.length ? priced.reduce((s, p) => s + p.totalCents!, 0) : null;
 
   const nextItems = (nextPlan.data ?? []).filter((i) => i.meal === next.meal).sort((a, b) => a.position - b.position);
   const week = weekDays(monday);
@@ -180,6 +187,21 @@ export function HomePage() {
           <p className={`mt-2 text-2xl font-bold ${alerts ? "text-low" : ""}`}>{alerts}</p>
           <p className="text-sm text-ink-2">{alerts ? `sous le seuil${stats.out ? ` · ${stats.out} en rupture` : ""}` : "stock au vert"}</p>
         </Link>
+
+        {/* 📦 Valeur du stock et 💰 dépenses : seulement quand c'est calculable. */}
+        {stockValue != null && (
+          <Link to="/stock/valeur" className="card p-4">
+            <p className="text-sm text-ink-2">📦 Valeur du stock</p>
+            <p className="mt-1 text-2xl font-bold">{formatCents(stockValue, true)}</p>
+          </Link>
+        )}
+        {spent30 != null && (
+          <Link to="/achats" className={`card p-4 ${stockValue == null ? "col-span-2" : ""}`}>
+            <p className="text-sm text-ink-2">💰 Dépenses 30 j</p>
+            <p className="mt-1 text-2xl font-bold">{formatCents(spent30, true)}</p>
+          </Link>
+        )}
+        {stockValue != null && spent30 == null && <div />}
 
         <Link to="/recettes" className="card flex items-center gap-3 p-4">
           <BookOpen className="size-5 text-brand" />

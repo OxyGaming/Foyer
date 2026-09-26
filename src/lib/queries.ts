@@ -44,7 +44,7 @@ export const useProduct = (id: string) =>
     // Affichage immédiat depuis la liste pendant le chargement du détail.
     placeholderData: () => {
       const p = qcRef.current?.getQueryData<Product[]>(keys.products)?.find((x) => x.id === id);
-      return p ? { ...p, movements: [], recipes: [] } : undefined;
+      return p ? { ...p, movements: [], recipes: [], purchases: [] } : undefined;
     },
   });
 export const useRecipes = () => useQuery({ queryKey: keys.recipes, queryFn: () => api.get<RecipeSummary[]>("/recipes") });

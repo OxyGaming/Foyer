@@ -58,7 +58,7 @@ Les photos sont dans `/var/data/foyer/uploads`. Pensez à inclure `/var/data/foy
 - **Product** : « Lait demi-écrémé » (catalogue : unité, seuils min/cible, catégorie, marque…)
 - **StockItem** : « 4 L présents au garage » (une ligne par produit × emplacement ; quantité inconnue autorisée)
 - **StockMovement** : chaque variation (ajustement, consommation, inventaire, déplacement, achat), pour un historique fiable
-- **Purchase / Store** : achats et prix en centimes (enregistrés au rangement des courses ; statistiques en phase 3)
+- **Purchase / Store** : achats (date, quantité dans l'unité du produit au moment de l'achat, prix total en centimes, magasin, promo, commentaire). Le prix unitaire est toujours calculé, jamais stocké.
 - **MealPlanItem** : un repas planifié (date AAAA-MM-JJ sans fuseau, repas, ordre, recette ou libellé libre, portions, « cuisiné »). Pas de conteneur « semaine » : la date suffit, et déplacer un repas d'une semaine à l'autre reste un simple changement de date.
 - **ShoppingList / ShoppingListItem** : une liste active par foyer ; les articles viennent du planning (`plan`), des seuils de stock (`restock`) ou de la saisie (`manual`)
 
@@ -70,6 +70,10 @@ Les ingrédients de recette sont reliés automatiquement à un produit du catalo
 
 `shared/needs.ts` (testé) : pour la période choisie, les besoins de toutes les recettes non cuisinées sont additionnés par produit (portions prévues comprises), convertis dans l'unité du stock (g↔kg, ml↔cl↔L), puis le stock est déduit. Carbonara (3 œufs) + Crêpes (3 œufs) avec 4 œufs en stock → **Œufs — 2**. Stock suffisant → « Stock suffisant ✓ ». Les quantités corrigées à la main et les articles cochés sont conservés lors des recalculs. Les unités incomparables (« c. à soupe » face à un stock en « paquet ») ne sont jamais converties au hasard.
 
+### Prix et valeur du stock
+
+`shared/prices.ts` (testé) : coût moyen **pondéré par les quantités** (6 × 0,99 + 6 × 1,09 + 6 × 1,05 → 1,04 €/unité), dernier prix, meilleur prix, historique. Les achats sont ramenés à l'unité actuelle du produit (500 g → 0,5 kg) ; les unités incomparables et les achats sans prix sont ignorés : **sans prix exploitable, rien n'est affiché**. La valeur du stock = quantité × coût moyen, uniquement pour les produits qui ont un prix (les autres sont listés comme « non comptés »). Les prix au gramme / millilitre s'affichent au kilo / litre.
+
 ### Hors connexion
 
 - Lecture : cache TanStack Query persisté dans IndexedDB (20 jours ; au-delà de ~24,8 jours `setTimeout` déborde).
@@ -80,5 +84,5 @@ Les ingrédients de recette sont reliés automatiquement à un produit du catalo
 
 - [x] **Phase 1** : comptes et foyer partagé, recettes (photos, ingrédients, étapes, catégories, tags, favoris, portions ajustables), produits et stock multi-emplacements, catégories et emplacements hiérarchiques, alertes de stock, inventaire, recherche globale, lecture hors ligne
 - [x] **Phase 2** : planning hebdomadaire (glisser-déposer tactile + « Déplacer vers… » / « Dupliquer vers… »), repas affichés configurables, liste de courses générée depuis le planning moins le stock, articles manuels et produits sous le seuil, rangement des achats dans le stock (achat + prix), « C'est cuisiné » qui déduit les ingrédients, cases à cocher hors ligne persistantes
-- [ ] **Phase 3** : historique des achats, prix moyen pondéré, dernier et meilleur prix, valeur du stock
+- [x] **Phase 3** : saisie et correction des achats (prix total ou unitaire, magasin, promo), prix moyen pondéré, dernier et meilleur prix, courbe des prix, valeur du stock (totale, par catégorie, par emplacement), page Dépenses (par semaine/mois, catégorie, magasin), magasin au rangement des courses, inventaire par emplacement avec historique des corrections
 - [ ] **Phase 4** : statistiques, « Que puis-je cuisiner avec mon stock ? »

@@ -8,7 +8,8 @@ import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma } from "../db";
 import { HttpError, nameText, notFound, optId, optNumber, optText, parseJson } from "../http";
-import { addToStock } from "./products";
+import { addToStock, defaultStockLocation } from "./products";
+import { resolveStore } from "./purchases";
 
 export const shoppingRoutes = new Hono<{ Variables: AuthVars }>();
 shoppingRoutes.use(requireAuth);
@@ -254,12 +255,15 @@ shoppingRoutes.post("/stock-in", async (c) => {
           }),
         )
         .max(300),
+      /** Magasin du passage en caisse (facultatif), commun à tous les articles. */
+      storeName: optText(80),
     }),
   );
   const locations = new Set((await prisma.location.findMany({ where: { householdId }, select: { id: true } })).map((l) => l.id));
   let stocked = 0;
 
   await prisma.$transaction(async (tx) => {
+    const storeId = await resolveStore(tx, householdId, body.storeName);
     for (const e of body.entries) {
       const item = await tx.shoppingListItem.findFirst({ where: { id: e.itemId, householdId } });
       if (!item) continue;
@@ -268,16 +272,18 @@ shoppingRoutes.post("/stock-in", async (c) => {
         // Article libre (« Papier toilette ») : on crée le produit à cette occasion.
         if (!product && item.name) product = await tx.product.create({ data: { householdId, name: item.name, unit: item.unit } });
         if (product) {
-          const locationId = e.locationId && locations.has(e.locationId) ? e.locationId : product.defaultLocationId;
+          const locationId = e.locationId && locations.has(e.locationId) ? e.locationId : await defaultStockLocation(tx, product);
           // Produit sans unité ni stock chiffré : il adopte l'unité de l'article acheté.
+          let unit = product.unit;
           if (!product.unit && item.unit && (await tx.stockItem.count({ where: { productId: product.id, quantity: { not: null } } })) === 0) {
             await tx.product.update({ where: { id: product.id }, data: { unit: item.unit } });
+            unit = item.unit;
           }
           const purchase = await tx.purchase.create({
-            data: { householdId, productId: product.id, quantity: e.quantity, totalCents: e.totalCents ?? null, userId: c.var.userId },
+            data: { householdId, productId: product.id, quantity: e.quantity, unit, totalCents: e.totalCents ?? null, storeId, userId: c.var.userId },
           });
           if (e.quantity != null && e.quantity > 0) {
-            await addToStock(tx, { householdId, productId: product.id, locationId, delta: e.quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note: "Courses" });
+            await addToStock(tx, { householdId, productId: product.id, locationId, delta: e.quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note: body.storeName ? `Courses · ${body.storeName}` : "Courses" });
           } else {
             // Quantité inconnue : le produit est « présent » à cet emplacement.
             const line = await tx.stockItem.findFirst({ where: { productId: product.id, locationId } });
