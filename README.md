@@ -23,7 +23,7 @@ npm install
 cp .env.example .env
 npx prisma migrate dev     # crée data/foyer.db
 npm run seed:dev           # compte de démo (identifiants dans server/scripts/seed-dev.ts)
-npm run dev                # API :3004 + front :5173 (proxy /api)
+npm run dev                # API :3005 + front :5173 (proxy /api)
 ```
 
 Ouvrir http://localhost:5173. Sur le téléphone (même Wi-Fi) : `http://<IP du PC>:5173`.
@@ -40,7 +40,7 @@ Le mot de passe est demandé au clavier. Ensuite, dans l'appli : **Réglages →
 
 ## Déploiement (VPS existant)
 
-Même modèle que les autres apps : PM2 derrière nginx, port **3004**, domaine **foyer.apps-reseau.fr**.
+Même modèle que les autres apps : PM2 derrière nginx, port **3005** (3000-3004 et 3011 déjà pris : astreinte, pointrh, simulateur, pointrh-zd, veille, docker), domaine **foyer.apps-reseau.fr**.
 
 0. DNS : enregistrement A `foyer.apps-reseau.fr` → IP du VPS
 1. `git clone https://github.com/OxyGaming/Foyer.git /var/www/Foyer`, puis `sudo mkdir -p /var/data/foyer && sudo chown ubuntu /var/data/foyer`
