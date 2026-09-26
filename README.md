@@ -66,6 +66,10 @@ Tout est rattaché à un **Household**. Un utilisateur appartient à un foyer vi
 
 Les ingrédients de recette sont reliés automatiquement à un produit du catalogue (même nom, sans tenir compte des accents ni des majuscules ; « Œufs » = « oeufs »). Le produit est créé s'il n'existe pas. C'est ce lien qui permet de générer les courses en tenant compte du stock.
 
+### Import de recettes
+
+**Recettes → icône presse-papiers** (`/recettes/importer`) : on colle une liste (notes du téléphone, liste de courses) ou on choisit un fichier `.txt`. `src/lib/recipeImport.ts` (testé) reconnaît les titres (☐/☑, `# Titre`, ou ligne suivie d'une liste), les ingrédients en puces (« 2 boîtes de thon », « 5-6 tomates » → 6, « (facultatif) » en note, « Sel, poivre, muscade » → 3 ingrédients) et les étapes (numérotées ou après « Préparation : »). Rien n'est enregistré avant l'aperçu : les doublons (mêmes mots dans n'importe quel ordre, dans le texte ou déjà enregistrés) sont décochés d'office, les lignes isolées comme « Semaine 9/10 » sont ignorées. L'import (`POST /api/recipes/import`) se fait en une seule transaction ; le rapprochement avec le catalogue tolère le pluriel simple (« Tomates » = « tomate »).
+
 ### Courses générées depuis le planning
 
 `shared/needs.ts` (testé) : pour la période choisie, les besoins de toutes les recettes non cuisinées sont additionnés par produit (portions prévues comprises), convertis dans l'unité du stock (g↔kg, ml↔cl↔L), puis le stock est déduit. Carbonara (3 œufs) + Crêpes (3 œufs) avec 4 œufs en stock → **Œufs — 2**. Stock suffisant → « Stock suffisant ✓ ». Les quantités corrigées à la main et les articles cochés sont conservés lors des recalculs. Les unités incomparables (« c. à soupe » face à un stock en « paquet ») ne sont jamais converties au hasard.

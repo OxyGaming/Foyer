@@ -101,6 +101,23 @@ describe("recettes ↔ produits", () => {
     expect(r2.body.ingredients[0].productId).toBe(r1.body.ingredients[0].productId);
     expect(r1.body.ingredients[1]).toMatchObject({ name: "Sel", quantity: null, unit: null });
   });
+
+  it("importe plusieurs recettes d'un coup et partage les produits (pluriels compris)", async () => {
+    const res = await a.call("POST", "/recipes/import", {
+      recipes: [
+        { name: "Salade lentilles – thon", tags: ["Import"], ingredients: [{ name: "Tomates", quantity: 2 }, { name: "Huile d’olive" }] },
+        { name: "Burger thon", ingredients: [{ name: "tomate" }, { name: "Huile d'olive" }], steps: [{ text: "Monter le burger" }] },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.count).toBe(2);
+    const [r1, r2] = await Promise.all(res.body.ids.map(async (id: string) => (await a.call("GET", `/recipes/${id}`)).body));
+    expect(r1.tags).toEqual(["Import"]);
+    expect(r2.steps).toHaveLength(1);
+    expect(r2.ingredients[0].productId).toBe(r1.ingredients[0].productId);
+    expect(r2.ingredients[1].productId).toBe(r1.ingredients[1].productId);
+    expect((await a.call("POST", "/recipes/import", { recipes: [] })).status).toBe(400);
+  });
 });
 
 describe("isolation entre foyers", () => {

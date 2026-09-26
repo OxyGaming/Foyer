@@ -1,4 +1,4 @@
-import { Clock, Heart, Plus, Search } from "lucide-react";
+import { ClipboardPaste, Clock, Heart, Plus, Search } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { matches } from "../../shared/text";
@@ -89,9 +89,14 @@ export function RecipesPage() {
         title="Recettes"
         subtitle={recipes.data ? `${recipes.data.length} recette${recipes.data.length > 1 ? "s" : ""}` : undefined}
         actions={
-          <button className="icon-btn bg-brand text-brand-ink active:bg-brand" onClick={() => setQuick(true)} aria-label="Nouvelle recette">
-            <Plus className="size-5" />
-          </button>
+          <>
+            <Link to="/recettes/importer" className="icon-btn" aria-label="Importer des recettes">
+              <ClipboardPaste className="size-5" />
+            </Link>
+            <button className="icon-btn bg-brand text-brand-ink active:bg-brand" onClick={() => setQuick(true)} aria-label="Nouvelle recette">
+              <Plus className="size-5" />
+            </button>
+          </>
         }
       />
       <div className="space-y-3 px-4">
@@ -125,6 +130,9 @@ export function RecipesPage() {
             <button className="btn-primary mt-4" onClick={() => setQuick(true)}>
               <Plus className="size-4" /> Ajouter une recette
             </button>
+            <Link to="/recettes/importer" className="btn-soft mt-2">
+              <ClipboardPaste className="size-4" /> Importer une liste
+            </Link>
           </EmptyState>
         ) : list.length === 0 ? (
           <EmptyState icon="🔍" title="Aucune recette ne correspond" />
