@@ -7,7 +7,7 @@ const UNITS = [
   "kg", "g", "mg", "l", "cl", "ml", "dl",
   "pincées", "pincée", "sachets", "sachet", "boîtes", "boîte", "pots", "pot", "tranches", "tranche", "gousses", "gousse",
   "pièces", "pièce", "paquets", "paquet", "bouteilles", "bouteille", "verres", "verre", "tasses", "tasse", "brins", "brin",
-  "morceaux", "morceau", "briques", "brique", "bocaux", "bocal", "feuilles", "feuille", "bottes", "botte", "poignées", "poignée",
+  "morceaux", "morceau", "briques", "brique", "bocaux", "bocal", "feuilles", "feuille", "bottes", "botte", "poignées", "poignée", "cubes", "cube",
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

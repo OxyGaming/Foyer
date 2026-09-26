@@ -26,9 +26,11 @@ export type ImportedRecipe = {
 
 export type ParsedImport = { recipes: ImportedRecipe[]; ignored: string[] };
 
-const CHECKBOX = /^\s*(?:[-*]\s*)?(?:[☐☑☒□■✓✔✅🔲⬜]️?|\[[ xX]?\])\s*/u;
+const BOX = String.raw`(?:[☐☑☒□■✓✔✅🔲⬜]️?|\[[ xX]?\])`;
+// Case seule en début de ligne (« ☐ Crumble ») = titre ; après une puce (« * ☐ 1 oignon ») = élément de liste.
+const CHECKBOX = new RegExp(String.raw`^\s*${BOX}\s*`, "u");
 const HEADING = /^\s*#{1,6}\s+/;
-const BULLET = /^\s*[-*•·◦▪]\s*/;
+const BULLET = new RegExp(String.raw`^\s*[-*•·◦▪]\s*(?:${BOX}\s*)?`, "u");
 const NUMBERED = /^\s*(?:\d{1,2}\s*[.)]|[ée]tape\s*\d+\s*[:.)-]?)\s+/i;
 const LABEL = /^\s*(ingr[ée]dients?|pr[ée]paration|[ée]tapes?|instructions?|d[ée]roul[ée])\s*:?\s*$/i;
 
@@ -85,9 +87,10 @@ export function parseRecipeText(text: string, existingNames: string[] = []): Par
   const addItem = (text: string, as: "ingredients" | "steps") => {
     const r = current as ImportedRecipe | null;
     if (!r) return void ignored.push(text.trim());
-    if (as === "steps") r.steps.push(text.replace(NUMBERED, "").replace(BULLET, "").trim());
-    else if (isRemark(text.replace(BULLET, ""))) r.notes.push(text.replace(BULLET, "").trim());
-    else r.ingredients.push(...parseIngredientLines(text));
+    const item = text.replace(BULLET, "").replace(CHECKBOX, "").trim();
+    if (as === "steps") r.steps.push(item.replace(NUMBERED, "").trim());
+    else if (isRemark(item)) r.notes.push(item);
+    else r.ingredients.push(...parseIngredientLines(item));
   };
 
   lines.forEach((line, i) => {

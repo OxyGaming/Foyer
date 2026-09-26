@@ -82,6 +82,30 @@ Omelette
     expect(recipes[1].ingredients).toHaveLength(2);
   });
 
+  it("lit une case placée après la puce comme un ingrédient", () => {
+    const { recipes, ignored } = parseRecipeText(`Crumble de potimarron
+
+* ☐ 1 potimarron (~1 kg)
+* ☐ 1 c. à soupe huile d’olive
+* ☑ 1 pincée de sel
+
+Dahl de lentilles corail
+
+- [ ] 300 g lentilles corail
+- [x] 1 cube bouillon`);
+    expect(ignored).toEqual([]);
+    expect(recipes.map((r) => r.name)).toEqual(["Crumble de potimarron", "Dahl de lentilles corail"]);
+    expect(recipes[0].ingredients).toMatchObject([
+      { name: "Potimarron", quantity: 1, note: "~1 kg" },
+      { name: "Huile d’olive", quantity: 1, unit: "c. à soupe" },
+      { name: "Sel", quantity: 1, unit: "pincée" },
+    ]);
+    expect(recipes[1].ingredients).toMatchObject([
+      { name: "Lentilles corail", quantity: 300, unit: "g" },
+      { name: "Bouillon", quantity: 1, unit: "cube" },
+    ]);
+  });
+
   it("accepte une simple liste de noms", () => {
     const { recipes } = parseRecipeText("Tartiflette\nLasagnes\n\nCrêpes");
     expect(recipes.map((r) => r.name)).toEqual(["Tartiflette", "Lasagnes", "Crêpes"]);
