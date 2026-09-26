@@ -68,7 +68,12 @@ Les ingrédients de recette sont reliés automatiquement à un produit du catalo
 
 ### Import de recettes
 
-**Recettes → icône presse-papiers** (`/recettes/importer`) : on colle une liste (notes du téléphone, liste de courses) ou on choisit un fichier `.txt`. `src/lib/recipeImport.ts` (testé) reconnaît les titres (☐/☑, `# Titre`, ou ligne suivie d'une liste), les ingrédients en puces (« 2 boîtes de thon », « 5-6 tomates » → 6, « (facultatif) » en note, « Sel, poivre, muscade » → 3 ingrédients) et les étapes (numérotées ou après « Préparation : »). Rien n'est enregistré avant l'aperçu : les doublons (mêmes mots dans n'importe quel ordre, dans le texte ou déjà enregistrés) sont décochés d'office, les lignes isolées comme « Semaine 9/10 » sont ignorées. L'import (`POST /api/recipes/import`) se fait en une seule transaction ; le rapprochement avec le catalogue tolère le pluriel simple (« Tomates » = « tomate »).
+**Recettes → icône presse-papiers** (`/recettes/importer`).
+
+- **Excel (recommandé)** : bouton « Modèle » → classeur à deux onglets, *Recettes* (une ligne par recette : portions, temps, tags, description, étapes une par ligne, notes) et *Ingrédients* (Recette | Ingrédient | Quantité | Unité | Note). Les colonnes sont reconnues par leur en-tête, dans n'importe quel ordre ; une cellule Recette vide reprend la ligne du dessus ; « 5-6 » donne 6 (note « 5 à 6 »). Lecture/écriture avec `read-excel-file` / `write-excel-file`, chargées à la demande. Code : `src/lib/excelImport.ts` (lecture, testée avec un aller-retour de fichier réel) et `src/lib/excelTemplate.ts` (modèle).
+- **Texte collé** : `src/lib/recipeImport.ts` reconnaît titres (☐/☑ en début de ligne, `# Titre`, ou ligne suivie d'une liste), ingrédients en puces (y compris `* ☐ 1 oignon`) et étapes.
+
+Rien n'est enregistré avant l'aperçu : les doublons (mêmes mots dans n'importe quel ordre, dans le fichier ou déjà enregistrés) sont décochés d'office. L'import (`POST /api/recipes/import`) se fait en une seule transaction ; le rapprochement avec le catalogue tolère le pluriel simple (« Tomates » = « tomate »).
 
 ### Courses générées depuis le planning
 
