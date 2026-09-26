@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+.env
+.env.local
+server/generated
+*.log
+*.tsbuildinfo
+dev-dist

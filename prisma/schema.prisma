@@ -1,0 +1,306 @@
+// Schéma Foyer — SQLite via Prisma 7 (adapter better-sqlite3).
+//
+// Règle métier : AUCUN champ métier obligatoire. Seuls les identifiants
+// techniques et les rattachements au foyer sont requis. Tout le reste est
+// nullable ou a une valeur par défaut neutre.
+//
+// Séparation volontaire :
+//   Product       → « Lait demi-écrémé » (le catalogue)
+//   StockItem     → « 4 L de lait présents dans le garage » (l'état)
+//   StockMovement → chaque variation de stock (historique fiable)
+//   Purchase      → « 6 L achetés le 25/09 à 0,99 €/L » (les achats)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─── Comptes & foyers ────────────────────────────────────────────────────────
+
+model User {
+  id           String            @id @default(cuid())
+  email        String            @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime          @default(now())
+  memberships  HouseholdMember[]
+  sessions     Session[]
+}
+
+model Household {
+  id          String            @id @default(cuid())
+  name        String            @default("Mon foyer")
+  createdAt   DateTime          @default(now())
+  members     HouseholdMember[]
+  invites     Invite[]
+  photos      Photo[]
+  categories  Category[]
+  locations   Location[]
+  recipes     Recipe[]
+  products    Product[]
+  stockItems  StockItem[]
+  movements   StockMovement[]
+  stores      Store[]
+  purchases   Purchase[]
+}
+
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String
+  userId      String
+  role        String    @default("member") // owner | member
+  createdAt   DateTime  @default(now())
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, userId])
+}
+
+/// Session opaque : l'id est le SHA-256 du jeton envoyé en cookie (jamais le jeton brut).
+model Session {
+  id          String   @id
+  userId      String
+  householdId String
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  householdId String
+  code        String    @unique
+  createdById String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  usedById    String?
+  createdAt   DateTime  @default(now())
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+}
+
+// ─── Photos ──────────────────────────────────────────────────────────────────
+
+/// Fichiers sur disque : {id}.webp (≤ 1600 px) et {id}_thumb.webp (≤ 480 px).
+model Photo {
+  id          String     @id @default(cuid())
+  householdId String
+  width       Int
+  height      Int
+  createdAt   DateTime   @default(now())
+  household   Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recipes     Recipe[]
+  products    Product[]
+  categories  Category[]
+}
+
+// ─── Référentiels ────────────────────────────────────────────────────────────
+
+/// kind = "recipe" (Plat, Dessert…) ou "product" (Alimentaire, Hygiène…).
+/// parentId permet les sous-catégories (Alimentaire › Conserves).
+model Category {
+  id          String           @id @default(cuid())
+  householdId String
+  kind        String
+  name        String           @default("")
+  icon        String?
+  color       String?
+  parentId    String?
+  sortOrder   Int              @default(0)
+  photoId     String?
+  createdAt   DateTime         @default(now())
+  household   Household        @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  parent      Category?        @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[]       @relation("CategoryTree")
+  photo       Photo?           @relation(fields: [photoId], references: [id], onDelete: SetNull)
+  products    Product[]
+  recipes     RecipeCategory[]
+
+  @@index([householdId, kind])
+}
+
+/// Arborescence libre : Maison › Garage › Étagère 1.
+model Location {
+  id              String      @id @default(cuid())
+  householdId     String
+  name            String      @default("")
+  icon            String?
+  parentId        String?
+  sortOrder       Int         @default(0)
+  createdAt       DateTime    @default(now())
+  household       Household   @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  parent          Location?   @relation("LocationTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Location[]  @relation("LocationTree")
+  stockItems      StockItem[]
+  defaultProducts Product[]
+
+  @@index([householdId])
+}
+
+// ─── Recettes ────────────────────────────────────────────────────────────────
+
+model Recipe {
+  id          String             @id @default(cuid())
+  householdId String
+  name        String             @default("")
+  description String?
+  servings    Float?
+  prepMinutes Int?
+  cookMinutes Int?
+  difficulty  Int?               // 1 facile · 2 moyen · 3 difficile
+  notes       String?
+  favorite    Boolean            @default(false)
+  tags        String             @default("[]") // tableau JSON de chaînes
+  photoId     String?
+  createdById String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  household   Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  photo       Photo?             @relation(fields: [photoId], references: [id], onDelete: SetNull)
+  ingredients RecipeIngredient[]
+  steps       RecipeStep[]
+  categories  RecipeCategory[]
+
+  @@index([householdId])
+}
+
+model RecipeCategory {
+  recipeId   String
+  categoryId String
+  recipe     Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([recipeId, categoryId])
+}
+
+/// "Sel" seul est valide : quantity/unit/productId sont facultatifs.
+/// `name` est le libellé affiché ; productId lie l'ingrédient au stock.
+model RecipeIngredient {
+  id        String   @id @default(cuid())
+  recipeId  String
+  position  Int      @default(0)
+  name      String   @default("")
+  productId String?
+  quantity  Float?
+  unit      String?
+  note      String?
+  recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([recipeId])
+  @@index([productId])
+}
+
+model RecipeStep {
+  id       String @id @default(cuid())
+  recipeId String
+  position Int    @default(0)
+  text     String @default("")
+  recipe   Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+}
+
+// ─── Produits & stock ────────────────────────────────────────────────────────
+
+model Product {
+  id                String             @id @default(cuid())
+  householdId       String
+  name              String             @default("")
+  photoId           String?
+  categoryId        String?
+  unit              String?
+  minStock          Float?
+  targetStock       Float?
+  defaultLocationId String?
+  brand             String?
+  reference         String?
+  notes             String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  household         Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  photo             Photo?             @relation(fields: [photoId], references: [id], onDelete: SetNull)
+  category          Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  defaultLocation   Location?          @relation(fields: [defaultLocationId], references: [id], onDelete: SetNull)
+  stockItems        StockItem[]
+  movements         StockMovement[]
+  purchases         Purchase[]
+  ingredients       RecipeIngredient[]
+
+  @@index([householdId])
+}
+
+/// Quantité d'un produit à un emplacement. quantity null = « présent, quantité inconnue ».
+/// Une seule ligne par (produit, emplacement) — y compris « sans emplacement » (géré côté code).
+model StockItem {
+  id          String          @id @default(cuid())
+  householdId String
+  productId   String
+  locationId  String?
+  quantity    Float?
+  updatedAt   DateTime        @updatedAt
+  household   Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  location    Location?       @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  movements   StockMovement[]
+
+  @@index([productId])
+}
+
+/// type : adjust (+/−, saisie) · inventory (comptage) · purchase · consume · move.
+model StockMovement {
+  id            String     @id @default(cuid())
+  householdId   String
+  productId     String
+  stockItemId   String?
+  type          String
+  delta         Float?
+  quantityAfter Float?
+  purchaseId    String?
+  note          String?
+  userId        String?
+  createdAt     DateTime   @default(now())
+  household     Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockItem     StockItem? @relation(fields: [stockItemId], references: [id], onDelete: SetNull)
+  purchase      Purchase?  @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+
+  @@index([productId, createdAt])
+}
+
+// ─── Achats (utilisé à partir de la phase 3) ─────────────────────────────────
+
+model Store {
+  id          String     @id @default(cuid())
+  householdId String
+  name        String     @default("")
+  createdAt   DateTime   @default(now())
+  household   Household  @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  purchases   Purchase[]
+}
+
+/// Prix stocké en centimes (entier) ; prix unitaire = totalCents / quantity, calculé.
+model Purchase {
+  id          String          @id @default(cuid())
+  householdId String
+  productId   String
+  date        DateTime        @default(now())
+  quantity    Float?
+  totalCents  Int?
+  storeId     String?
+  isPromo     Boolean         @default(false)
+  note        String?
+  userId      String?
+  createdAt   DateTime        @default(now())
+  household   Household       @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  store       Store?          @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  movements   StockMovement[]
+
+  @@index([productId, date])
+}
