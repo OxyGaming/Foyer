@@ -1,8 +1,9 @@
-import { Clock, Heart, Plus, Search } from "lucide-react";
+import { ChefHat, ChevronRight, Clock, Heart, Plus, Search } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { matches } from "../../shared/text";
 import { EmptyState, PageHeader, PageLoader, Sheet, Thumb } from "@/components/ui";
+import { useCookable } from "@/lib/cookable";
 import { formatMinutes } from "@/lib/format";
 import { useCategories, useRecipes, useSaveRecipe, useToggleFavorite } from "@/lib/queries";
 import type { RecipeSummary } from "@/lib/types";
@@ -66,6 +67,9 @@ export function QuickRecipeSheet({ open, onClose }: { open: boolean; onClose: ()
 
 export function RecipesPage() {
   const recipes = useRecipes();
+  const cookable = useCookable();
+  const ready = cookable.data?.ranked.filter((c) => c.complete).length ?? 0;
+  const nearly = cookable.data?.ranked.filter((c) => c.missing.length === 1).length ?? 0;
   const categories = useCategories();
   const [q, setQ] = useState("");
   const [params] = useSearchParams();
@@ -95,6 +99,18 @@ export function RecipesPage() {
         }
       />
       <div className="space-y-3 px-4">
+        {(cookable.data?.ranked.length ?? 0) > 0 && (
+          <Link to="/recettes/avec-mon-stock" className="card flex items-center gap-3 border-ok/30 bg-ok-soft p-3.5">
+            <ChefHat className="size-5 text-ok" />
+            <span className="flex-1">
+              <span className="block font-semibold">Que puis-je cuisiner ?</span>
+              <span className="text-sm text-ink-2">
+                {ready} réalisable{ready > 1 ? "s" : ""} avec le stock{nearly > 0 ? ` · ${nearly} à un ingrédient près` : ""}
+              </span>
+            </span>
+            <ChevronRight className="size-5 text-ink-3" />
+          </Link>
+        )}
         {(recipes.data?.length ?? 0) > 0 && (
           <>
             <label className="relative block">

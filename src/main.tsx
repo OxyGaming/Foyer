@@ -7,7 +7,8 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import { Toaster } from "sonner";
 import { ApiError } from "./lib/api";
-import { qcRef } from "./lib/queries";
+import { registerPlanMutations } from "./lib/planQueries";
+import { qcRef, registerStockMutations } from "./lib/queries";
 import { registerShoppingMutations } from "./lib/shoppingQueries";
 import { router } from "./router";
 import "./index.css";
@@ -31,6 +32,8 @@ const queryClient = new QueryClient({
 });
 qcRef.current = queryClient;
 registerShoppingMutations(queryClient);
+registerPlanMutations(queryClient);
+registerStockMutations(queryClient);
 
 // Le cache des lectures est conservé dans IndexedDB : recettes, stock et
 // référentiels restent consultables hors connexion et au redémarrage.

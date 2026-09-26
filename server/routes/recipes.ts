@@ -70,7 +70,7 @@ recipeRoutes.get("/", async (c) => {
       id: true, name: true, description: true, photoId: true, favorite: true, tags: true, servings: true,
       prepMinutes: true, cookMinutes: true, difficulty: true, updatedAt: true,
       categories: { select: { categoryId: true } },
-      ingredients: { select: { name: true, productId: true } },
+      ingredients: { orderBy: { position: "asc" }, select: { name: true, productId: true, quantity: true, unit: true } },
       _count: { select: { steps: true } },
     },
   });

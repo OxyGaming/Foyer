@@ -1,4 +1,7 @@
-import { CalendarPlus, Camera, ChevronLeft, Copy, Heart, Minus, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarPlus, Camera, ChevronLeft, Copy, Heart, Minus, Pencil, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { cookability } from "../../shared/cookable";
+import { stockMap, useAddMissingToShopping } from "@/lib/cookable";
+import { missingLabel } from "./Cookable";
 import { PlanRecipeSheet } from "@/components/MealSheets";
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
@@ -27,6 +30,7 @@ export function RecipeDetailPage() {
   const [planning, setPlanning] = useState(false);
 
   const stockByProduct = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
+  const addMissing = useAddMissingToShopping();
 
   if (recipe.isPending) return <PageLoader />;
   if (!recipe.data) {
@@ -44,6 +48,8 @@ export function RecipeDetailPage() {
   const shownServings = servings ?? baseServings;
   const factor = baseServings && shownServings ? shownServings / baseServings : 1;
   const cats = (categories.data ?? []).filter((c) => r.categoryIds.includes(c.id));
+  // Disponibilité pour le nombre de portions affiché.
+  const availability = products.data ? cookability(r, stockMap(products.data), shownServings) : null;
   const meta = [
     r.servings != null && `👥 ${formatQty(shownServings)} portion${(shownServings ?? 0) > 1 ? "s" : ""}`,
     r.prepMinutes != null && `🔪 ${formatMinutes(r.prepMinutes)}`,
@@ -164,6 +170,23 @@ export function RecipeDetailPage() {
                 );
               })}
             </ul>
+          )}
+          {availability && availability.counted > 0 && (
+            <div className={`mt-2 rounded-xl p-3 text-sm ${availability.complete ? "bg-ok-soft text-ok" : "bg-surface-2"}`}>
+              {availability.complete ? (
+                <p className="font-semibold">✓ Tout est en stock{shownServings ? ` pour ${formatQty(shownServings)} pers.` : ""}</p>
+              ) : (
+                <>
+                  <p>
+                    <span className="font-semibold text-low">Il manque :</span> <span className="text-ink-2">{missingLabel(availability)}</span>
+                  </p>
+                  <button className="btn-soft mt-2 min-h-9 w-full bg-surface text-sm" onClick={() => addMissing(availability.missing, r.name)}>
+                    <ShoppingCart className="size-4" /> Ajouter les manquants aux courses
+                  </button>
+                </>
+              )}
+              {availability.basicsMissing.length > 0 && <p className="mt-1 text-xs text-ink-3">À vérifier : {availability.basicsMissing.join(", ")}</p>}
+            </div>
           )}
         </section>
 

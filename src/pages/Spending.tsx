@@ -59,7 +59,7 @@ export function SpendingPage() {
       key: c.key,
       label: c.label,
       tooltip: c.tooltip,
-      valueCents: priced.filter((p) => localDay(p.date) >= c.start && localDay(p.date) <= c.end).reduce((s, p) => s + p.totalCents!, 0),
+      value: priced.filter((p) => localDay(p.date) >= c.start && localDay(p.date) <= c.end).reduce((s, p) => s + p.totalCents!, 0),
     }));
     const cats = (categories.data ?? []).filter((c) => c.kind === "product");
     const root = (id: string | null) => {
@@ -72,11 +72,11 @@ export function SpendingPage() {
     for (const p of priced) {
       const r = root(p.product.categoryId);
       const ck = r?.id ?? "_none";
-      byCat.set(ck, { key: ck, label: r ? `${r.icon ?? ""} ${r.name}` : "Sans catégorie", valueCents: (byCat.get(ck)?.valueCents ?? 0) + p.totalCents! });
+      byCat.set(ck, { key: ck, label: r ? `${r.icon ?? ""} ${r.name}` : "Sans catégorie", value: (byCat.get(ck)?.value ?? 0) + p.totalCents! });
       const sk = p.store?.name ?? "_none";
-      byStore.set(sk, { key: sk, label: p.store?.name ?? "Magasin non précisé", valueCents: (byStore.get(sk)?.valueCents ?? 0) + p.totalCents! });
+      byStore.set(sk, { key: sk, label: p.store?.name ?? "Magasin non précisé", value: (byStore.get(sk)?.value ?? 0) + p.totalCents! });
     }
-    const sort = (m: Map<string, BarItem>) => [...m.values()].sort((a, b) => b.valueCents - a.valueCents);
+    const sort = (m: Map<string, BarItem>) => [...m.values()].sort((a, b) => b.value - a.value);
     return { list, priced, total, columns, byCat: sort(byCat), byStore: sort(byStore), unpriced: list.length - priced.length };
   }, [purchases.data, categories.data, cols]);
 
