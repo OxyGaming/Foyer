@@ -8,16 +8,20 @@ import { RouterProvider } from "react-router";
 import { Toaster } from "sonner";
 import { ApiError } from "./lib/api";
 import { qcRef } from "./lib/queries";
+import { registerShoppingMutations } from "./lib/shoppingQueries";
 import { router } from "./router";
 import "./index.css";
 
 const DAY = 24 * 60 * 60 * 1000;
+// Au-delà de ~24,8 jours (2^31 ms), setTimeout déborde et se déclenche aussitôt :
+// le cache serait alors vidé immédiatement. On reste donc à 20 jours.
+const CACHE_DAYS = 20 * DAY;
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      gcTime: 30 * DAY, // doit couvrir la durée de persistance
+      gcTime: CACHE_DAYS, // doit couvrir la durée de persistance
       // Pas de nouvelle tentative sur une erreur « métier » (401, 404…).
       retry: (count, err) => !(err instanceof ApiError && err.status > 0) && count < 2,
       // Hors connexion : on sert le cache persistant sans erreur.
@@ -26,6 +30,7 @@ const queryClient = new QueryClient({
   },
 });
 qcRef.current = queryClient;
+registerShoppingMutations(queryClient);
 
 // Le cache des lectures est conservé dans IndexedDB : recettes, stock et
 // référentiels restent consultables hors connexion et au redémarrage.
@@ -41,9 +46,16 @@ createRoot(document.getElementById("root")!).render(
       client={queryClient}
       persistOptions={{
         persister,
-        maxAge: 30 * DAY,
-        buster: "v1",
-        dehydrateOptions: { shouldDehydrateQuery: (q) => q.state.status === "success" && q.queryKey[0] !== "search" },
+        maxAge: CACHE_DAYS,
+        buster: "v2",
+        // Toute requête ayant des données, même si le dernier rafraîchissement a échoué
+        // (statut « error » hors connexion) : c'est justement ce cache qu'on veut garder.
+        dehydrateOptions: { shouldDehydrateQuery: (q) => q.state.data !== undefined && q.queryKey[0] !== "search" },
+      }}
+      // Rejoue les actions faites hors ligne (courses cochées…) une fois le cache restauré.
+      // Sans attendre la fin : le provider patienterait jusqu'au retour du réseau avant d'afficher l'appli.
+      onSuccess={() => {
+        void queryClient.resumePausedMutations().then(() => queryClient.invalidateQueries());
       }}
     >
       <RouterProvider router={router} />

@@ -5,7 +5,7 @@ export type { StockStatus };
 export type Member = { id: string; name: string | null; email: string; role: string };
 export type Me = {
   user: { id: string; email: string; name: string | null };
-  household: { id: string; name: string; members: Member[] };
+  household: { id: string; name: string; mealSlots: MealPlanItem["meal"][]; members: Member[] };
 };
 
 export type CategoryKind = "recipe" | "product";
@@ -139,3 +139,40 @@ export type SearchResult = {
 };
 
 export type Invite = { id: string; code: string; expiresAt: string };
+
+// ─── Phase 2 : planning & courses ────────────────────────────────────────────
+
+export type MealPlanItem = {
+  id: string;
+  date: string;
+  meal: "breakfast" | "lunch" | "snack" | "dinner";
+  position: number;
+  recipeId: string | null;
+  title: string | null;
+  servings: number | null;
+  note: string | null;
+  cookedAt: string | null;
+};
+
+export type ShoppingItem = {
+  id: string;
+  productId: string | null;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  quantityOverride: number | null;
+  neededQty: number | null;
+  stockQty: number | null;
+  source: "manual" | "plan" | "restock";
+  recipesLabel: string | null;
+  checked: boolean;
+  checkedAt: string | null;
+  note: string | null;
+  position: number;
+  createdAt: string;
+};
+
+export type ShoppingList = {
+  list: { id: string; planFrom: string | null; planTo: string | null };
+  items: ShoppingItem[];
+};

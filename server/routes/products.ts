@@ -203,6 +203,37 @@ stockRoutes.delete("/:id", async (c) => {
 
 // ─── Écriture du stock + mouvement ───────────────────────────────────────────
 
+/** Ajoute une quantité à un emplacement (quantité inconnue → devient la quantité ajoutée). */
+export async function addToStock(
+  tx: Tx,
+  a: { householdId: string; productId: string; locationId: string | null; delta: number; type: string; userId: string; note?: string; purchaseId?: string },
+) {
+  const existing = await tx.stockItem.findFirst({ where: { productId: a.productId, locationId: a.locationId } });
+  const quantity = roundQty((existing?.quantity ?? 0) + a.delta);
+  return setStock(tx, { ...a, quantity });
+}
+
+/**
+ * Retire une quantité du stock d'un produit : emplacement habituel d'abord,
+ * puis les autres lignes (les plus fournies en premier). Jamais sous zéro.
+ * Retourne la quantité réellement retirée.
+ */
+export async function consumeStock(tx: Tx, a: { householdId: string; productId: string; quantity: number; userId: string; note?: string }) {
+  const product = await tx.product.findFirst({ where: { id: a.productId, householdId: a.householdId }, select: { defaultLocationId: true } });
+  if (!product) return 0;
+  const lines = (await tx.stockItem.findMany({ where: { productId: a.productId } }))
+    .filter((l) => l.quantity != null && l.quantity > 0)
+    .sort((x, y) => Number(y.locationId === product.defaultLocationId) - Number(x.locationId === product.defaultLocationId) || y.quantity! - x.quantity!);
+  let left = a.quantity;
+  for (const line of lines) {
+    if (left <= 1e-9) break;
+    const take = Math.min(left, line.quantity!);
+    await setStock(tx, { householdId: a.householdId, productId: a.productId, locationId: line.locationId, quantity: roundQty(line.quantity! - take), type: "consume", userId: a.userId, note: a.note });
+    left -= take;
+  }
+  return roundQty(a.quantity - Math.max(0, left));
+}
+
 export async function setStock(
   tx: Tx,
   a: { householdId: string; productId: string; locationId: string | null; quantity: number | null; type: string; userId: string; note?: string; purchaseId?: string },

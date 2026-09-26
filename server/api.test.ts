@@ -139,3 +139,104 @@ describe("invitations", () => {
     expect(again.status).toBe(400);
   });
 });
+
+describe("planning et courses (phase 2)", () => {
+  let c: Client;
+  let carbo: string;
+  let crepes: string;
+  let oeufs: string;
+  beforeAll(async () => {
+    c = await userWithHousehold("courses@foyer.test", "Foyer courses");
+    carbo = (await c.call("POST", "/recipes", { name: "Carbonara", servings: 2, ingredients: [{ name: "Œufs", quantity: 3 }, { name: "Pâtes", quantity: 250, unit: "g" }] })).body.id;
+    const r = (await c.call("POST", "/recipes", { name: "Crêpes", servings: 4, ingredients: [{ name: "oeufs", quantity: 3 }, { name: "Lait", quantity: 500, unit: "ml" }, { name: "Sel" }] })).body;
+    crepes = r.id;
+    oeufs = r.ingredients[0].productId;
+    await c.call("POST", "/plan", { date: "2026-10-05", meal: "dinner", recipeId: carbo });
+    await c.call("POST", "/plan", { date: "2026-10-07", meal: "lunch", recipeId: crepes });
+  });
+
+  const sync = () => c.call("POST", "/shopping/sync", { from: "2026-10-05", to: "2026-10-11" });
+  const line = (items: { productId: string | null; name: string }[], name: string) => items.find((i) => i.name === name) as any;
+
+  it("additionne les besoins : 🥚 Œufs — 6 sur une seule ligne", async () => {
+    const r = await sync();
+    const eggs = r.body.items.filter((i: { productId: string }) => i.productId === oeufs);
+    expect(eggs).toHaveLength(1);
+    expect(eggs[0]).toMatchObject({ quantity: 6, neededQty: 6, source: "plan", recipesLabel: "Carbonara, Crêpes" });
+    expect(line(r.body.items, "Lait")).toMatchObject({ quantity: 500, unit: "ml" });
+  });
+
+  it("déduit le stock : 4 œufs en stock → 2 à acheter, puis « stock suffisant »", async () => {
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 4 });
+    expect(line((await sync()).body.items, "Œufs")).toMatchObject({ quantity: 2, stockQty: 4 });
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 10 });
+    expect(line((await sync()).body.items, "Œufs")).toMatchObject({ quantity: 0 });
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 0 });
+  });
+
+  it("garde une quantité corrigée à la main et les articles cochés", async () => {
+    const eggs = line((await sync()).body.items, "Œufs");
+    await c.call("PATCH", `/shopping/items/${eggs.id}`, { quantity: 12 });
+    expect(line((await sync()).body.items, "Œufs")).toMatchObject({ quantity: 6, quantityOverride: 12 });
+    const lait = line((await sync()).body.items, "Lait");
+    await c.call("PATCH", `/shopping/items/${lait.id}`, { checked: true });
+    const planItems = (await c.call("GET", "/plan?from=2026-10-05&to=2026-10-11")).body;
+    await c.call("DELETE", `/plan/${planItems.find((p: { recipeId: string }) => p.recipeId === crepes).id}`);
+    const after = (await sync()).body.items;
+    expect(line(after, "Lait")).toMatchObject({ checked: true });
+    expect(line(after, "Œufs")).toMatchObject({ quantity: 3 });
+    await c.call("POST", "/plan", { date: "2026-10-07", meal: "lunch", recipeId: crepes });
+  });
+
+  it("ajout manuel idempotent (id client) et fusion d'un doublon", async () => {
+    const id = "offline-abc12345";
+    const a1 = await c.call("POST", "/shopping/items", { id, name: "Papier toilette", quantity: 1 });
+    const a2 = await c.call("POST", "/shopping/items", { id, name: "Papier toilette", quantity: 1 });
+    expect(a2.body.id).toBe(a1.body.id);
+    const merged = await c.call("POST", "/shopping/items", { name: "papier toilette", quantity: 2 });
+    expect(merged.body).toMatchObject({ id, quantity: 3 });
+  });
+
+  it("range les achats : stock augmenté, achat enregistré, article retiré", async () => {
+    const items = (await c.call("GET", "/shopping")).body.items;
+    const pq = line(items, "Papier toilette");
+    const r = await c.call("POST", "/shopping/stock-in", { entries: [{ itemId: pq.id, addToStock: true, quantity: 3, totalCents: 598 }] });
+    expect(r.body.stocked).toBe(1);
+    expect(line(r.body.items, "Papier toilette")).toBeUndefined();
+    const product = (await c.call("GET", "/products")).body.find((p: { name: string }) => p.name === "Papier toilette");
+    expect(product.quantity).toBe(3);
+    const detail = (await c.call("GET", `/products/${product.id}`)).body;
+    expect(detail.movements[0]).toMatchObject({ type: "purchase", delta: 3 });
+    expect(await prisma.purchase.count({ where: { productId: product.id, totalCents: 598 } })).toBe(1);
+  });
+
+  it("déplace un repas vers un autre jour/repas et réordonne", async () => {
+    const [first] = (await c.call("GET", "/plan?from=2026-10-05&to=2026-10-05")).body;
+    const extra = (await c.call("POST", "/plan", { date: "2026-10-06", meal: "dinner", title: "Restes" })).body;
+    const moved = await c.call("PATCH", `/plan/${first.id}`, { date: "2026-10-06", meal: "dinner", position: 0 });
+    expect(moved.body).toMatchObject({ date: "2026-10-06", meal: "dinner", position: 0 });
+    const slot = (await c.call("GET", "/plan?from=2026-10-06&to=2026-10-06")).body;
+    expect(slot.map((i: { id: string }) => i.id)).toEqual([first.id, extra.id]);
+  });
+
+  it("« cuisiné » retire les ingrédients du stock", async () => {
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 5 });
+    const item = (await c.call("GET", "/plan?from=2026-10-06&to=2026-10-06")).body.find((i: { recipeId: string }) => i.recipeId === carbo);
+    const r = await c.call("POST", `/plan/${item.id}/cook`, { consume: [{ productId: oeufs, quantity: 3 }] });
+    expect(r.body.item.cookedAt).toBeTruthy();
+    expect((await c.call("GET", `/products/${oeufs}`)).body.quantity).toBe(2);
+    // Un repas cuisiné ne compte plus dans la liste.
+    expect(line((await sync()).body.items, "Pâtes")).toBeUndefined();
+  });
+
+  it("isole planning et courses entre foyers", async () => {
+    const mine = (await c.call("GET", "/plan?from=2026-10-01&to=2026-10-31")).body[0];
+    expect((await b.call("PATCH", `/plan/${mine.id}`, { date: "2026-10-01" })).status).toBe(404);
+    expect((await b.call("POST", "/plan", { date: "2026-10-01", meal: "lunch", recipeId: carbo })).status).toBe(400);
+    expect((await b.call("POST", "/plan", { id: mine.id, date: "2026-10-01", meal: "lunch" })).status).toBe(409);
+    const item = (await c.call("GET", "/shopping")).body.items[0];
+    expect((await b.call("PATCH", `/shopping/items/${item.id}`, { checked: true })).status).toBe(404);
+    expect((await b.call("GET", "/shopping")).body.items).toHaveLength(0);
+    expect((await b.call("POST", `/plan/${mine.id}/cook`, { consume: [{ productId: oeufs, quantity: 1 }] })).status).toBe(404);
+  });
+});

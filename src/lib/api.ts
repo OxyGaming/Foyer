@@ -1,3 +1,5 @@
+import { markServerReachable, markServerUnreachable } from "./connectivity";
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -20,8 +22,15 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch {
+    markServerUnreachable();
     throw new ApiError(0, "Pas de connexion");
   }
+  // 502/503/504 : nginx répond mais l'appli est indisponible (redémarrage…).
+  if (res.status >= 502 && res.status <= 504) {
+    markServerUnreachable();
+    throw new ApiError(0, "Serveur momentanément indisponible");
+  }
+  markServerReachable();
   if (!res.ok) {
     let message = `Erreur ${res.status}`;
     try {

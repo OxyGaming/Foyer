@@ -177,9 +177,13 @@ recipeRoutes.post("/:id/duplicate", async (c) => {
 });
 
 recipeRoutes.delete("/:id", async (c) => {
-  const existing = await prisma.recipe.findFirst({ where: { id: c.req.param("id"), householdId: c.var.householdId }, select: { id: true, photoId: true } });
+  const existing = await prisma.recipe.findFirst({ where: { id: c.req.param("id"), householdId: c.var.householdId }, select: { id: true, photoId: true, name: true } });
   if (!existing) throw new HttpError(404, "Recette introuvable");
-  await prisma.recipe.delete({ where: { id: existing.id } });
+  await prisma.$transaction([
+    // Le planning garde le nom du plat, sans lien vers la recette supprimée.
+    prisma.mealPlanItem.updateMany({ where: { recipeId: existing.id, title: null }, data: { title: existing.name || "Recette supprimée" } }),
+    prisma.recipe.delete({ where: { id: existing.id } }),
+  ]);
   await releasePhoto(existing.photoId);
   return c.json({ ok: true });
 });

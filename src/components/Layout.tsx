@@ -1,30 +1,21 @@
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Home, Package, Search, WifiOff } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BookOpen, CalendarDays, Home, Package, ShoppingCart, WifiOff } from "lucide-react";
+import { toBuyCount, useShopping } from "@/lib/shoppingQueries";
+import { useEffect } from "react";
+import { useOnline } from "@/lib/connectivity";
+
+export { useOnline };
 import { NavLink, Outlet } from "react-router";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
 const TABS = [
   { to: "/", label: "Accueil", icon: Home, end: true },
   { to: "/recettes", label: "Recettes", icon: BookOpen },
+  { to: "/planning", label: "Planning", icon: CalendarDays },
+  { to: "/courses", label: "Courses", icon: ShoppingCart },
   { to: "/stock", label: "Stock", icon: Package },
-  { to: "/recherche", label: "Recherche", icon: Search },
 ];
 
-export function useOnline() {
-  const [online, setOnline] = useState(navigator.onLine);
-  useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
-    return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-    };
-  }, []);
-  return online;
-}
 
 function OfflineBanner() {
   const online = useOnline();
@@ -68,6 +59,8 @@ function UpdatePrompt() {
 }
 
 export function Layout() {
+  const shopping = useShopping();
+  const toBuy = toBuyCount(shopping.data?.items);
   return (
     <div className="mx-auto min-h-dvh max-w-3xl">
       <OfflineBanner />
@@ -76,7 +69,7 @@ export function Layout() {
       </main>
       <UpdatePrompt />
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 backdrop-blur-md">
-        <div className="mx-auto grid max-w-3xl grid-cols-4">
+        <div className="mx-auto grid max-w-3xl grid-cols-5">
           {TABS.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -86,8 +79,11 @@ export function Layout() {
             >
               {({ isActive }) => (
                 <>
-                  <span className={`flex h-8 w-14 items-center justify-center rounded-full transition ${isActive ? "bg-brand-soft" : ""}`}>
+                  <span className={`relative flex h-8 w-14 items-center justify-center rounded-full transition ${isActive ? "bg-brand-soft" : ""}`}>
                     <Icon className="size-5" strokeWidth={isActive ? 2.4 : 2} />
+                    {to === "/courses" && toBuy > 0 && (
+                      <span className="absolute -top-1 right-1.5 min-w-4 rounded-full bg-low px-1 text-center text-[10px] leading-4 font-bold text-white">{toBuy > 99 ? "99+" : toBuy}</span>
+                    )}
                   </span>
                   {label}
                 </>
