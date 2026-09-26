@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { PhotoPicker } from "@/components/PhotoPicker";
 import { Field, NumberInput, PageHeader, PageLoader, Sheet, Spinner } from "@/components/ui";
 import { UNIT_SUGGESTIONS } from "@/lib/format";
-import { parseIngredientLine } from "@/lib/ingredients";
+import { parseIngredientLines } from "@/lib/ingredients";
 import { useCategories, useProducts, useRecipe, useSaveRecipe } from "@/lib/queries";
 import type { Ingredient, Recipe, RecipeInput } from "@/lib/types";
 
@@ -88,7 +88,7 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
   }
 
   function importLines() {
-    const rows = (paste ?? "").split("\n").map(parseIngredientLine).filter((x) => x !== null).map((x) => ({ ...x, key: newKey() }));
+    const rows = (paste ?? "").split("\n").flatMap(parseIngredientLines).map((x) => ({ ...x, key: newKey() }));
     set("ingredients", [...d.ingredients.filter((r) => r.name || r.quantity != null), ...rows]);
     setPaste(null);
     if (rows.length) toast.success(`${rows.length} ingrédient(s) ajouté(s)`);

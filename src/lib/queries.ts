@@ -179,6 +179,18 @@ export function useSaveRecipe() {
   });
 }
 
+export function useImportRecipes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (recipes: RecipeInput[]) => api.post<{ count: number; ids: string[] }>("/recipes/import", { recipes }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.recipes, exact: true });
+      qc.invalidateQueries({ queryKey: keys.products, exact: true });
+    },
+    onError,
+  });
+}
+
 export function useToggleFavorite() {
   const qc = useQueryClient();
   return useMutation({

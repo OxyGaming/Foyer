@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { normalize } from "../../shared/text";
+import { productKey } from "../../shared/text";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma, type Tx } from "../db";
 import { HttpError, nameText, notFound, optId, optInt, optNumber, optText, parseJson } from "../http";
@@ -83,18 +83,18 @@ recipeRoutes.get("/:id", async (c) => c.json(await loadRecipe(c.var.householdId,
 
 /**
  * Relie chaque ingrédient à un produit du catalogue (même nom, sans tenir compte
- * des accents/majuscules), en le créant si besoin : c'est ce qui permettra de
+ * des accents/majuscules ni du pluriel simple), en le créant si besoin : c'est ce qui permettra de
  * croiser recettes, stock et liste de courses. Un ingrédient sans nom reste libre.
  */
 async function resolveIngredients(tx: Tx, householdId: string, list: z.output<typeof ingredientInput>[]) {
   const products = await tx.product.findMany({ where: { householdId }, select: { id: true, name: true } });
-  const byName = new Map(products.map((p) => [normalize(p.name), p.id]));
+  const byName = new Map(products.map((p) => [productKey(p.name), p.id]));
   const ids = new Set(products.map((p) => p.id));
   const out = [];
   for (const [position, ing] of list.entries()) {
     let productId = ing.productId && ids.has(ing.productId) ? ing.productId : null;
     if (!productId && ing.name) {
-      const key = normalize(ing.name);
+      const key = productKey(ing.name);
       productId = byName.get(key) ?? null;
       if (!productId) {
         const created = await tx.product.create({ data: { householdId, name: ing.name, unit: ing.unit } });
@@ -140,6 +140,25 @@ recipeRoutes.post("/", async (c) => {
     return r.id;
   });
   return c.json(await loadRecipe(householdId, id), 201);
+});
+
+/** Import groupé (texte collé, analysé côté appli) : tout ou rien, dans une seule transaction. */
+recipeRoutes.post("/import", async (c) => {
+  const householdId = c.var.householdId;
+  const { recipes } = await parseJson(c.req, z.object({ recipes: z.array(recipeInput.omit({ photoId: true })).min(1).max(300) }));
+  const ids = await prisma.$transaction(
+    async (tx) => {
+      const out: string[] = [];
+      for (const body of recipes) {
+        const r = await tx.recipe.create({ data: { householdId, createdById: c.var.userId } });
+        await writeRecipe(tx, householdId, r.id, body);
+        out.push(r.id);
+      }
+      return out;
+    },
+    { timeout: 60_000 },
+  );
+  return c.json({ count: ids.length, ids }, 201);
 });
 
 recipeRoutes.patch("/:id", async (c) => {

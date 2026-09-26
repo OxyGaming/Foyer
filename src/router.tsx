@@ -13,6 +13,7 @@ import { ProductDetailPage } from "./pages/ProductDetail";
 import { ProductEditPage } from "./pages/ProductEdit";
 import { RecipeDetailPage } from "./pages/RecipeDetail";
 import { RecipeEditPage } from "./pages/RecipeEdit";
+import { RecipeImportPage } from "./pages/RecipeImport";
 import { RecipesPage } from "./pages/Recipes";
 import { RestockPage } from "./pages/Restock";
 import { SearchPage } from "./pages/Search";
@@ -71,6 +72,7 @@ export const router = createBrowserRouter([
           { path: "/", element: <HomePage /> },
           { path: "/recettes", element: <RecipesPage /> },
           { path: "/recettes/nouvelle", element: <RecipeEditPage /> },
+          { path: "/recettes/importer", element: <RecipeImportPage /> },
           { path: "/recettes/:id", element: <RecipeDetailPage /> },
           { path: "/recettes/:id/modifier", element: <RecipeEditPage /> },
           { path: "/planning", element: <PlanningPage /> },
