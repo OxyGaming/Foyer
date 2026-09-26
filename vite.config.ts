@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     host: true,
     // Transmet l'hôte d'origine (vérification CSRF), comme nginx en production.
-    proxy: { "/api": { target: "http://localhost:3004", changeOrigin: false, xfwd: true } },
+    proxy: { "/api": { target: "http://localhost:3005", changeOrigin: false, xfwd: true } },
   },
   plugins: [
     react(),

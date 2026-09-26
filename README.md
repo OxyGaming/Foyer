@@ -1,6 +1,6 @@
 # Foyer
 
-PWA mobile-first pour gérer la maison à deux : recettes, stock (alimentaire, hygiène, entretien…), et bientôt planning des repas et liste de courses.
+PWA mobile-first pour gérer la maison à deux : recettes, planning des repas, liste de courses et stock (alimentaire, hygiène, entretien…).
 
 **Principe de base : aucun champ métier obligatoire.** « Tartiflette » seul est une recette valide, « Lessive » seul est un produit valide. On complète plus tard.
 
@@ -23,7 +23,7 @@ npm install
 cp .env.example .env
 npx prisma migrate dev     # crée data/foyer.db
 npm run seed:dev           # compte de démo (identifiants dans server/scripts/seed-dev.ts)
-npm run dev                # API :3004 + front :5173 (proxy /api)
+npm run dev                # API :3005 + front :5173 (proxy /api)
 ```
 
 Ouvrir http://localhost:5173. Sur le téléphone (même Wi-Fi) : `http://<IP du PC>:5173`.
@@ -40,7 +40,7 @@ Le mot de passe est demandé au clavier. Ensuite, dans l'appli : **Réglages →
 
 ## Déploiement (VPS existant)
 
-Même modèle que les autres apps : PM2 derrière nginx, port **3004**, domaine **foyer.apps-reseau.fr**.
+Même modèle que les autres apps : PM2 derrière nginx, port **3005** (3000-3004 et 3011 déjà pris : astreinte, pointrh, simulateur, pointrh-zd, veille, docker), domaine **foyer.apps-reseau.fr**.
 
 0. DNS : enregistrement A `foyer.apps-reseau.fr` → IP du VPS
 1. `git clone https://github.com/OxyGaming/Foyer.git /var/www/Foyer`, puis `sudo mkdir -p /var/data/foyer && sudo chown ubuntu /var/data/foyer`
@@ -58,15 +58,31 @@ Les photos sont dans `/var/data/foyer/uploads`. Pensez à inclure `/var/data/foy
 - **Product** : « Lait demi-écrémé » (catalogue : unité, seuils min/cible, catégorie, marque…)
 - **StockItem** : « 4 L présents au garage » (une ligne par produit × emplacement ; quantité inconnue autorisée)
 - **StockMovement** : chaque variation (ajustement, consommation, inventaire, déplacement, achat), pour un historique fiable
-- **Purchase / Store** : achats et prix en centimes (utilisés à partir de la phase 3)
+- **Purchase / Store** : achats (date, quantité dans l'unité du produit au moment de l'achat, prix total en centimes, magasin, promo, commentaire). Le prix unitaire est toujours calculé, jamais stocké.
+- **MealPlanItem** : un repas planifié (date AAAA-MM-JJ sans fuseau, repas, ordre, recette ou libellé libre, portions, « cuisiné »). Pas de conteneur « semaine » : la date suffit, et déplacer un repas d'une semaine à l'autre reste un simple changement de date.
+- **ShoppingList / ShoppingListItem** : une liste active par foyer ; les articles viennent du planning (`plan`), des seuils de stock (`restock`) ou de la saisie (`manual`)
 
 Tout est rattaché à un **Household**. Un utilisateur appartient à un foyer via **HouseholdMember**, ce qui prépare plusieurs foyers par la suite. Chaque requête API est filtrée par le foyer de la session.
 
-Les ingrédients de recette sont reliés automatiquement à un produit du catalogue (même nom, sans tenir compte des accents ni des majuscules ; « Œufs » = « oeufs »). Le produit est créé s'il n'existe pas. C'est ce lien qui permettra de générer les courses en tenant compte du stock.
+Les ingrédients de recette sont reliés automatiquement à un produit du catalogue (même nom, sans tenir compte des accents ni des majuscules ; « Œufs » = « oeufs »). Le produit est créé s'il n'existe pas. C'est ce lien qui permet de générer les courses en tenant compte du stock.
+
+### Courses générées depuis le planning
+
+`shared/needs.ts` (testé) : pour la période choisie, les besoins de toutes les recettes non cuisinées sont additionnés par produit (portions prévues comprises), convertis dans l'unité du stock (g↔kg, ml↔cl↔L), puis le stock est déduit. Carbonara (3 œufs) + Crêpes (3 œufs) avec 4 œufs en stock → **Œufs — 2**. Stock suffisant → « Stock suffisant ✓ ». Les quantités corrigées à la main et les articles cochés sont conservés lors des recalculs. Les unités incomparables (« c. à soupe » face à un stock en « paquet ») ne sont jamais converties au hasard.
+
+### Prix et valeur du stock
+
+`shared/prices.ts` (testé) : coût moyen **pondéré par les quantités** (6 × 0,99 + 6 × 1,09 + 6 × 1,05 → 1,04 €/unité), dernier prix, meilleur prix, historique. Les achats sont ramenés à l'unité actuelle du produit (500 g → 0,5 kg) ; les unités incomparables et les achats sans prix sont ignorés : **sans prix exploitable, rien n'est affiché**. La valeur du stock = quantité × coût moyen, uniquement pour les produits qui ont un prix (les autres sont listés comme « non comptés »). Les prix au gramme / millilitre s'affichent au kilo / litre.
+
+### Hors connexion
+
+- Lecture : cache TanStack Query persisté dans IndexedDB (20 jours ; au-delà de ~24,8 jours `setTimeout` déborde).
+- Courses : cocher, ajouter, corriger et retirer fonctionnent sans réseau, **même si l'appli est fermée puis rouverte** ; les actions sont rejouées dans l'ordre au retour. Un serveur injoignable avec réseau actif (Wi-Fi du magasin) est traité comme hors ligne.
+- Les actions qui relisent planning et stock (recalcul, rangement des achats) attendent le réseau.
 
 ## Feuille de route
 
 - [x] **Phase 1** : comptes et foyer partagé, recettes (photos, ingrédients, étapes, catégories, tags, favoris, portions ajustables), produits et stock multi-emplacements, catégories et emplacements hiérarchiques, alertes de stock, inventaire, recherche globale, lecture hors ligne
-- [ ] **Phase 2** : planning hebdomadaire (glisser-déposer + « Déplacer vers… »), liste de courses générée depuis le planning moins le stock, articles manuels, file d'attente hors ligne persistante pour cocher en magasin
-- [ ] **Phase 3** : historique des achats, prix moyen pondéré, dernier et meilleur prix, valeur du stock
+- [x] **Phase 2** : planning hebdomadaire (glisser-déposer tactile + « Déplacer vers… » / « Dupliquer vers… »), repas affichés configurables, liste de courses générée depuis le planning moins le stock, articles manuels et produits sous le seuil, rangement des achats dans le stock (achat + prix), « C'est cuisiné » qui déduit les ingrédients, cases à cocher hors ligne persistantes
+- [x] **Phase 3** : saisie et correction des achats (prix total ou unitaire, magasin, promo), prix moyen pondéré, dernier et meilleur prix, courbe des prix, valeur du stock (totale, par catégorie, par emplacement), page Dépenses (par semaine/mois, catégorie, magasin), magasin au rangement des courses, inventaire par emplacement avec historique des corrections
 - [ ] **Phase 4** : statistiques, « Que puis-je cuisiner avec mon stock ? »

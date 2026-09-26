@@ -39,4 +39,4 @@ pm2 restart foyer --update-env 2>/dev/null || pm2 start deploy/ecosystem.config.
 pm2 save
 
 sleep 2
-curl -fsS http://127.0.0.1:3004/api/health >/dev/null && echo "✅ Foyer en ligne — $(git log --oneline -1)" || { echo "❌ /api/health ne répond pas : pm2 logs foyer"; exit 1; }
+curl -fsS http://127.0.0.1:3005/api/health >/dev/null && echo "✅ Foyer en ligne — $(git log --oneline -1)" || { echo "❌ /api/health ne répond pas : pm2 logs foyer"; exit 1; }

@@ -139,3 +139,187 @@ describe("invitations", () => {
     expect(again.status).toBe(400);
   });
 });
+
+describe("planning et courses (phase 2)", () => {
+  let c: Client;
+  let carbo: string;
+  let crepes: string;
+  let oeufs: string;
+  beforeAll(async () => {
+    c = await userWithHousehold("courses@foyer.test", "Foyer courses");
+    carbo = (await c.call("POST", "/recipes", { name: "Carbonara", servings: 2, ingredients: [{ name: "Œufs", quantity: 3 }, { name: "Pâtes", quantity: 250, unit: "g" }] })).body.id;
+    const r = (await c.call("POST", "/recipes", { name: "Crêpes", servings: 4, ingredients: [{ name: "oeufs", quantity: 3 }, { name: "Lait", quantity: 500, unit: "ml" }, { name: "Sel" }] })).body;
+    crepes = r.id;
+    oeufs = r.ingredients[0].productId;
+    await c.call("POST", "/plan", { date: "2026-10-05", meal: "dinner", recipeId: carbo });
+    await c.call("POST", "/plan", { date: "2026-10-07", meal: "lunch", recipeId: crepes });
+  });
+
+  const sync = () => c.call("POST", "/shopping/sync", { from: "2026-10-05", to: "2026-10-11" });
+  const line = (items: { productId: string | null; name: string }[], name: string) => items.find((i) => i.name === name) as any;
+
+  it("additionne les besoins : 🥚 Œufs — 6 sur une seule ligne", async () => {
+    const r = await sync();
+    const eggs = r.body.items.filter((i: { productId: string }) => i.productId === oeufs);
+    expect(eggs).toHaveLength(1);
+    expect(eggs[0]).toMatchObject({ quantity: 6, neededQty: 6, source: "plan", recipesLabel: "Carbonara, Crêpes" });
+    expect(line(r.body.items, "Lait")).toMatchObject({ quantity: 500, unit: "ml" });
+  });
+
+  it("déduit le stock : 4 œufs en stock → 2 à acheter, puis « stock suffisant »", async () => {
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 4 });
+    expect(line((await sync()).body.items, "Œufs")).toMatchObject({ quantity: 2, stockQty: 4 });
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 10 });
+    expect(line((await sync()).body.items, "Œufs")).toMatchObject({ quantity: 0 });
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 0 });
+  });
+
+  it("garde une quantité corrigée à la main et les articles cochés", async () => {
+    const eggs = line((await sync()).body.items, "Œufs");
+    await c.call("PATCH", `/shopping/items/${eggs.id}`, { quantity: 12 });
+    expect(line((await sync()).body.items, "Œufs")).toMatchObject({ quantity: 6, quantityOverride: 12 });
+    const lait = line((await sync()).body.items, "Lait");
+    await c.call("PATCH", `/shopping/items/${lait.id}`, { checked: true });
+    const planItems = (await c.call("GET", "/plan?from=2026-10-05&to=2026-10-11")).body;
+    await c.call("DELETE", `/plan/${planItems.find((p: { recipeId: string }) => p.recipeId === crepes).id}`);
+    const after = (await sync()).body.items;
+    expect(line(after, "Lait")).toMatchObject({ checked: true });
+    expect(line(after, "Œufs")).toMatchObject({ quantity: 3 });
+    await c.call("POST", "/plan", { date: "2026-10-07", meal: "lunch", recipeId: crepes });
+  });
+
+  it("ajout manuel idempotent (id client) et fusion d'un doublon", async () => {
+    const id = "offline-abc12345";
+    const a1 = await c.call("POST", "/shopping/items", { id, name: "Papier toilette", quantity: 1 });
+    const a2 = await c.call("POST", "/shopping/items", { id, name: "Papier toilette", quantity: 1 });
+    expect(a2.body.id).toBe(a1.body.id);
+    const merged = await c.call("POST", "/shopping/items", { name: "papier toilette", quantity: 2 });
+    expect(merged.body).toMatchObject({ id, quantity: 3 });
+  });
+
+  it("range les achats : stock augmenté, achat enregistré, article retiré", async () => {
+    const items = (await c.call("GET", "/shopping")).body.items;
+    const pq = line(items, "Papier toilette");
+    const r = await c.call("POST", "/shopping/stock-in", { entries: [{ itemId: pq.id, addToStock: true, quantity: 3, totalCents: 598 }] });
+    expect(r.body.stocked).toBe(1);
+    expect(line(r.body.items, "Papier toilette")).toBeUndefined();
+    const product = (await c.call("GET", "/products")).body.find((p: { name: string }) => p.name === "Papier toilette");
+    expect(product.quantity).toBe(3);
+    const detail = (await c.call("GET", `/products/${product.id}`)).body;
+    expect(detail.movements[0]).toMatchObject({ type: "purchase", delta: 3 });
+    expect(await prisma.purchase.count({ where: { productId: product.id, totalCents: 598 } })).toBe(1);
+  });
+
+  it("déplace un repas vers un autre jour/repas et réordonne", async () => {
+    const [first] = (await c.call("GET", "/plan?from=2026-10-05&to=2026-10-05")).body;
+    const extra = (await c.call("POST", "/plan", { date: "2026-10-06", meal: "dinner", title: "Restes" })).body;
+    const moved = await c.call("PATCH", `/plan/${first.id}`, { date: "2026-10-06", meal: "dinner", position: 0 });
+    expect(moved.body).toMatchObject({ date: "2026-10-06", meal: "dinner", position: 0 });
+    const slot = (await c.call("GET", "/plan?from=2026-10-06&to=2026-10-06")).body;
+    expect(slot.map((i: { id: string }) => i.id)).toEqual([first.id, extra.id]);
+  });
+
+  it("« cuisiné » retire les ingrédients du stock", async () => {
+    await c.call("POST", `/products/${oeufs}/stock`, { quantity: 5 });
+    const item = (await c.call("GET", "/plan?from=2026-10-06&to=2026-10-06")).body.find((i: { recipeId: string }) => i.recipeId === carbo);
+    const r = await c.call("POST", `/plan/${item.id}/cook`, { consume: [{ productId: oeufs, quantity: 3 }] });
+    expect(r.body.item.cookedAt).toBeTruthy();
+    expect((await c.call("GET", `/products/${oeufs}`)).body.quantity).toBe(2);
+    // Un repas cuisiné ne compte plus dans la liste.
+    expect(line((await sync()).body.items, "Pâtes")).toBeUndefined();
+  });
+
+  it("isole planning et courses entre foyers", async () => {
+    const mine = (await c.call("GET", "/plan?from=2026-10-01&to=2026-10-31")).body[0];
+    expect((await b.call("PATCH", `/plan/${mine.id}`, { date: "2026-10-01" })).status).toBe(404);
+    expect((await b.call("POST", "/plan", { date: "2026-10-01", meal: "lunch", recipeId: carbo })).status).toBe(400);
+    expect((await b.call("POST", "/plan", { id: mine.id, date: "2026-10-01", meal: "lunch" })).status).toBe(409);
+    const item = (await c.call("GET", "/shopping")).body.items[0];
+    expect((await b.call("PATCH", `/shopping/items/${item.id}`, { checked: true })).status).toBe(404);
+    expect((await b.call("GET", "/shopping")).body.items).toHaveLength(0);
+    expect((await b.call("POST", `/plan/${mine.id}/cook`, { consume: [{ productId: oeufs, quantity: 1 }] })).status).toBe(404);
+  });
+});
+
+describe("achats, prix et inventaire (phase 3)", () => {
+  let c: Client;
+  let lessive: any;
+  beforeAll(async () => {
+    c = await userWithHousehold("prix@foyer.test", "Foyer prix");
+    lessive = (await c.call("POST", "/products", { name: "Lessive", quantity: 1, minStock: 2, targetStock: 4 })).body;
+  });
+
+  it("enregistre un achat : prix unitaire, magasin créé une fois, stock augmenté", async () => {
+    const r = await c.call("POST", "/purchases", { productId: lessive.id, date: "2026-09-12", quantity: 2, totalCents: 598, storeName: "Leclerc" });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ quantity: 2, totalCents: 598, store: { name: "Leclerc" } });
+    await c.call("POST", "/purchases", { productId: lessive.id, date: "2026-09-20", quantity: 1, totalCents: 349, storeName: "leclerc", isPromo: true });
+    expect((await c.call("GET", "/purchases/stores")).body).toHaveLength(1);
+    const p = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p.quantity).toBe(4);
+    expect(p.purchases).toHaveLength(2);
+    expect(p.pricing).toMatchObject({ count: 2, best: { unitCents: 299 }, last: { unitCents: 349, isPromo: true } });
+    expect(p.pricing.avgCents).toBeCloseTo(315.67, 1);
+    expect(p.pricing.history).toHaveLength(2);
+  });
+
+  it("résume les prix dans la liste, sans historique, et rien sans prix", async () => {
+    const list = (await c.call("GET", "/products")).body;
+    const inList = list.find((x: { id: string }) => x.id === lessive.id).pricing;
+    expect(inList.count).toBe(2);
+    expect(inList.history).toBeUndefined();
+    const sansPrix = (await c.call("POST", "/products", { name: "Sel", quantity: 1 })).body;
+    await c.call("POST", "/purchases", { productId: sansPrix.id, quantity: 1 });
+    expect((await c.call("GET", `/products/${sansPrix.id}`)).body.pricing).toBeNull();
+  });
+
+  it("garde le résumé des prix après un +1 (réponse mise en cache par l'appli)", async () => {
+    const adj = await c.call("POST", `/stock/${lessive.stock[0].id}/adjust`, { delta: 1 });
+    expect(adj.body.pricing?.count).toBe(2);
+  });
+
+  it("corrige et supprime un achat sans toucher au stock", async () => {
+    const [latest] = (await c.call("GET", `/products/${lessive.id}`)).body.purchases;
+    await c.call("PATCH", `/purchases/${latest.id}`, { totalCents: 299 });
+    const p1 = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p1.pricing.avgCents).toBeCloseTo(299);
+    await c.call("DELETE", `/purchases/${latest.id}`);
+    const p2 = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p2.purchases).toHaveLength(1);
+    expect(p2.quantity).toBe(p1.quantity);
+  });
+
+  it("liste les achats d'une période", async () => {
+    const r = (await c.call("GET", "/purchases?from=2026-09-01&to=2026-09-15")).body;
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ totalCents: 598, product: { name: "Lessive" } });
+  });
+
+  it("range les courses avec le magasin du passage en caisse", async () => {
+    await c.call("POST", "/shopping/items", { name: "Lessive", quantity: 3 });
+    const item = (await c.call("GET", "/shopping")).body.items.find((i: { name: string }) => i.name === "Lessive");
+    await c.call("POST", "/shopping/stock-in", { storeName: "Lidl", entries: [{ itemId: item.id, addToStock: true, quantity: 3, totalCents: 900 }] });
+    const p = (await c.call("GET", `/products/${lessive.id}`)).body;
+    expect(p.purchases[0]).toMatchObject({ quantity: 3, totalCents: 900, store: { name: "Lidl" } });
+  });
+
+  it("inventaire groupé : corrige et historise les écarts", async () => {
+    const before = (await c.call("GET", `/products/${lessive.id}`)).body;
+    const line = before.stock[0];
+    const r = await c.call("POST", "/inventory", { entries: [{ productId: lessive.id, locationId: line.locationId, quantity: 2 }] });
+    expect(r.body).toEqual({ counted: 1, corrected: 1 });
+    expect((await c.call("GET", `/products/${lessive.id}`)).body.quantity).toBe(2);
+    const hist = (await c.call("GET", "/inventory/history")).body;
+    expect(hist[0]).toMatchObject({ delta: 2 - before.quantity, quantityAfter: 2, product: { name: "Lessive" } });
+  });
+
+  it("isole achats et inventaire entre foyers", async () => {
+    const [purchase] = (await c.call("GET", `/products/${lessive.id}`)).body.purchases;
+    expect((await b.call("POST", "/purchases", { productId: lessive.id, quantity: 1 })).status).toBe(404);
+    expect((await b.call("PATCH", `/purchases/${purchase.id}`, { totalCents: 1 })).status).toBe(404);
+    await b.call("DELETE", `/purchases/${purchase.id}`);
+    expect((await c.call("GET", `/products/${lessive.id}`)).body.purchases.some((x: { id: string }) => x.id === purchase.id)).toBe(true);
+    expect((await b.call("POST", "/inventory", { entries: [{ productId: lessive.id, quantity: 99 }] })).body.corrected).toBe(0);
+    expect((await b.call("GET", "/purchases")).body).toHaveLength(0);
+  });
+});

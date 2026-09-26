@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
+import { priceStats } from "../../shared/prices";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma, type Tx } from "../db";
@@ -32,23 +33,38 @@ const productSelect = {
   id: true, name: true, photoId: true, categoryId: true, unit: true, minStock: true, targetStock: true,
   defaultLocationId: true, brand: true, reference: true, notes: true, createdAt: true, updatedAt: true,
   stockItems: { select: { id: true, locationId: true, quantity: true, updatedAt: true }, orderBy: { updatedAt: "asc" as const } },
+  // Achats chiffrés : de quoi calculer coût moyen, dernier et meilleur prix.
+  purchases: {
+    where: { totalCents: { not: null } },
+    select: { id: true, date: true, quantity: true, unit: true, totalCents: true, isPromo: true, store: { select: { name: true } } },
+  },
 } as const;
 
 type ProductRow = {
+  unit: string | null;
   minStock: number | null;
   targetStock: number | null;
   stockItems: { id: string; locationId: string | null; quantity: number | null; updatedAt: Date }[];
+  purchases: { id: string; date: Date; quantity: number | null; unit: string | null; totalCents: number | null; isPromo: boolean; store: { name: string } | null }[];
 };
 
-function present<T extends ProductRow>(p: T) {
-  const { stockItems, ...rest } = p;
+function pricing(p: ProductRow) {
+  const stats = priceStats(p.purchases.map((x) => ({ ...x, store: x.store?.name })), p.unit);
+  return stats && { count: stats.count, avgCents: stats.avgCents, last: stats.last, best: stats.best, history: stats.history };
+}
+
+function present<T extends ProductRow>(p: T, withHistory = false) {
+  const { stockItems, purchases: _purchases, ...rest } = p;
   const quantity = totalQuantity(stockItems);
+  const price = pricing(p);
   return {
     ...rest,
     stock: stockItems,
     quantity,
     status: stockStatus(quantity, p.minStock),
     toBuy: quantityToBuy(quantity, p.minStock, p.targetStock),
+    // Sans prix exploitable : null (on n'invente pas de valeur).
+    pricing: price && (withHistory ? price : { ...price, history: undefined }),
   };
 }
 
@@ -72,13 +88,13 @@ productRoutes.get("/", async (c) => {
     orderBy: { name: "asc" },
     select: productSelect,
   });
-  return c.json(products.map(present));
+  return c.json(products.map((p) => present(p)));
 });
 
 productRoutes.get("/:id", async (c) => {
   const householdId = c.var.householdId;
   const p = await loadProduct(householdId, c.req.param("id"));
-  const [movements, recipes] = await Promise.all([
+  const [movements, recipes, purchases] = await Promise.all([
     prisma.stockMovement.findMany({
       where: { productId: p.id },
       orderBy: { createdAt: "desc" },
@@ -90,8 +106,14 @@ productRoutes.get("/:id", async (c) => {
       select: { id: true, name: true, photoId: true },
       orderBy: { name: "asc" },
     }),
+    prisma.purchase.findMany({
+      where: { productId: p.id },
+      orderBy: { date: "desc" },
+      take: 100,
+      select: { id: true, date: true, quantity: true, unit: true, totalCents: true, isPromo: true, note: true, store: { select: { name: true } } },
+    }),
   ]);
-  return c.json({ ...present(p), movements, recipes });
+  return c.json({ ...present(p, true), movements, recipes, purchases });
 });
 
 productRoutes.post("/", async (c) => {
@@ -202,6 +224,44 @@ stockRoutes.delete("/:id", async (c) => {
 });
 
 // ─── Écriture du stock + mouvement ───────────────────────────────────────────
+
+/** Où ranger un achat sans emplacement précisé : l'habituel, sinon l'unique endroit déjà utilisé. */
+export async function defaultStockLocation(tx: Tx, product: { id: string; defaultLocationId: string | null }) {
+  if (product.defaultLocationId) return product.defaultLocationId;
+  const lines = await tx.stockItem.findMany({ where: { productId: product.id }, select: { locationId: true } });
+  return lines.length === 1 ? lines[0].locationId : null;
+}
+
+/** Ajoute une quantité à un emplacement (quantité inconnue → devient la quantité ajoutée). */
+export async function addToStock(
+  tx: Tx,
+  a: { householdId: string; productId: string; locationId: string | null; delta: number; type: string; userId: string; note?: string; purchaseId?: string },
+) {
+  const existing = await tx.stockItem.findFirst({ where: { productId: a.productId, locationId: a.locationId } });
+  const quantity = roundQty((existing?.quantity ?? 0) + a.delta);
+  return setStock(tx, { ...a, quantity });
+}
+
+/**
+ * Retire une quantité du stock d'un produit : emplacement habituel d'abord,
+ * puis les autres lignes (les plus fournies en premier). Jamais sous zéro.
+ * Retourne la quantité réellement retirée.
+ */
+export async function consumeStock(tx: Tx, a: { householdId: string; productId: string; quantity: number; userId: string; note?: string }) {
+  const product = await tx.product.findFirst({ where: { id: a.productId, householdId: a.householdId }, select: { defaultLocationId: true } });
+  if (!product) return 0;
+  const lines = (await tx.stockItem.findMany({ where: { productId: a.productId } }))
+    .filter((l) => l.quantity != null && l.quantity > 0)
+    .sort((x, y) => Number(y.locationId === product.defaultLocationId) - Number(x.locationId === product.defaultLocationId) || y.quantity! - x.quantity!);
+  let left = a.quantity;
+  for (const line of lines) {
+    if (left <= 1e-9) break;
+    const take = Math.min(left, line.quantity!);
+    await setStock(tx, { householdId: a.householdId, productId: a.productId, locationId: line.locationId, quantity: roundQty(line.quantity! - take), type: "consume", userId: a.userId, note: a.note });
+    left -= take;
+  }
+  return roundQty(a.quantity - Math.max(0, left));
+}
 
 export async function setStock(
   tx: Tx,

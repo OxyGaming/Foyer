@@ -4,6 +4,7 @@ import { ChevronRight, Copy, FolderTree, KeyRound, LogOut, MapPin, Plus, Share2,
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { MEAL_LABEL, MEALS } from "../../shared/dates";
 import { Field, PageHeader, PageLoader, Sheet, useConfirm } from "@/components/ui";
 import { api } from "@/lib/api";
 import { keys, useCategories, useDeleteCategory, useDeleteLocation, useInvites, useLocations, useMe, useSaveCategory, useSaveLocation } from "@/lib/queries";
@@ -150,6 +151,35 @@ export function SettingsPage() {
             </button>
           </div>
           <p className="mt-1.5 px-1 text-xs text-ink-3">La personne invitée crée son compte avec le code (valable 7 jours) et partage aussitôt recettes et stock.</p>
+        </section>
+
+        <section>
+          <h2 className="mb-2 px-1 text-sm font-bold tracking-wide text-ink-2 uppercase">Repas du planning</h2>
+          <div className="grid grid-cols-2 gap-2">
+            {MEALS.map((m) => {
+              const on = household.mealSlots?.includes(m) ?? (m === "lunch" || m === "dinner");
+              return (
+                <button
+                  key={m}
+                  className={`chip justify-center ${on ? "chip-on" : ""}`}
+                  aria-pressed={on}
+                  onClick={async () => {
+                    const current = household.mealSlots ?? ["lunch", "dinner"];
+                    const next = on ? current.filter((x) => x !== m) : [...current, m];
+                    if (!next.length) return toast.error("Gardez au moins un repas");
+                    try {
+                      await api.patch("/household", { mealSlots: next });
+                      await qc.invalidateQueries({ queryKey: keys.me });
+                    } catch (err) {
+                      toast.error((err as Error).message);
+                    }
+                  }}
+                >
+                  {MEAL_LABEL[m]}
+                </button>
+              );
+            })}
+          </div>
         </section>
 
         <section className="card divide-y divide-line overflow-hidden">

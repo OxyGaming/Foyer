@@ -32,20 +32,24 @@ model User {
 }
 
 model Household {
-  id          String            @id @default(cuid())
-  name        String            @default("Mon foyer")
-  createdAt   DateTime          @default(now())
-  members     HouseholdMember[]
-  invites     Invite[]
-  photos      Photo[]
-  categories  Category[]
-  locations   Location[]
-  recipes     Recipe[]
-  products    Product[]
-  stockItems  StockItem[]
-  movements   StockMovement[]
-  stores      Store[]
-  purchases   Purchase[]
+  id            String            @id @default(cuid())
+  name          String            @default("Mon foyer")
+  /// Repas affichés dans le planning (tableau JSON) : breakfast | lunch | snack | dinner
+  mealSlots     String            @default("[\"lunch\",\"dinner\"]")
+  createdAt     DateTime          @default(now())
+  mealPlan      MealPlanItem[]
+  shoppingLists ShoppingList[]
+  members       HouseholdMember[]
+  invites       Invite[]
+  photos        Photo[]
+  categories    Category[]
+  locations     Location[]
+  recipes       Recipe[]
+  products      Product[]
+  stockItems    StockItem[]
+  movements     StockMovement[]
+  stores        Store[]
+  purchases     Purchase[]
 }
 
 model HouseholdMember {
@@ -152,7 +156,7 @@ model Recipe {
   servings    Float?
   prepMinutes Int?
   cookMinutes Int?
-  difficulty  Int?               // 1 facile · 2 moyen · 3 difficile
+  difficulty  Int? // 1 facile · 2 moyen · 3 difficile
   notes       String?
   favorite    Boolean            @default(false)
   tags        String             @default("[]") // tableau JSON de chaînes
@@ -165,6 +169,7 @@ model Recipe {
   ingredients RecipeIngredient[]
   steps       RecipeStep[]
   categories  RecipeCategory[]
+  mealPlan    MealPlanItem[]
 
   @@index([householdId])
 }
@@ -231,6 +236,7 @@ model Product {
   movements         StockMovement[]
   purchases         Purchase[]
   ingredients       RecipeIngredient[]
+  shoppingItems     ShoppingListItem[]
 
   @@index([householdId])
 }
@@ -285,12 +291,14 @@ model Store {
 }
 
 /// Prix stocké en centimes (entier) ; prix unitaire = totalCents / quantity, calculé.
+/// quantity est exprimée dans `unit`, copie de l'unité du produit au moment de l'achat.
 model Purchase {
   id          String          @id @default(cuid())
   householdId String
   productId   String
   date        DateTime        @default(now())
   quantity    Float?
+  unit        String?
   totalCents  Int?
   storeId     String?
   isPromo     Boolean         @default(false)
@@ -303,4 +311,74 @@ model Purchase {
   movements   StockMovement[]
 
   @@index([productId, date])
+}
+
+// ─── Planning (phase 2) ──────────────────────────────────────────────────────
+
+/// Un créneau du planning. Pas de conteneur « semaine » : la date suffit à
+/// regrouper, et déplacer un repas d'une semaine à l'autre reste un simple
+/// changement de date.
+model MealPlanItem {
+  id          String    @id @default(cuid())
+  householdId String
+  date        String // YYYY-MM-DD (date calendaire, sans fuseau)
+  meal        String // breakfast | lunch | snack | dinner
+  position    Int       @default(0)
+  recipeId    String?
+  /// Libellé libre (« Restes », « Resto ») ou nom conservé d'une recette supprimée.
+  title       String?
+  servings    Float?
+  note        String?
+  cookedAt    DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  recipe      Recipe?   @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  @@index([householdId, date])
+}
+
+// ─── Courses (phase 2) ───────────────────────────────────────────────────────
+
+model ShoppingList {
+  id          String             @id @default(cuid())
+  householdId String
+  name        String             @default("Courses")
+  /// Période du planning utilisée pour la dernière génération.
+  planFrom    String?
+  planTo      String?
+  createdAt   DateTime           @default(now())
+  household   Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  items       ShoppingListItem[]
+
+  @@index([householdId])
+}
+
+/// source : manual (saisi) · plan (généré depuis le planning) · restock (sous le seuil).
+/// Quantité affichée = quantityOverride ?? quantity. quantity = 0 → couvert par le stock.
+model ShoppingListItem {
+  id               String       @id @default(cuid())
+  listId           String
+  householdId      String
+  productId        String?
+  name             String       @default("")
+  quantity         Float?
+  unit             String?
+  quantityOverride Float?
+  neededQty        Float?
+  stockQty         Float?
+  source           String       @default("manual")
+  planKey          String?
+  recipesLabel     String?
+  checked          Boolean      @default(false)
+  checkedAt        DateTime?
+  note             String?
+  position         Int          @default(0)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  list             ShoppingList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  product          Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([listId])
 }

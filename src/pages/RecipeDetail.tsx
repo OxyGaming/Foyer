@@ -1,4 +1,5 @@
-import { Camera, ChevronLeft, Copy, Heart, Minus, Pencil, Plus, Trash2 } from "lucide-react";
+import { CalendarPlus, Camera, ChevronLeft, Copy, Heart, Minus, Pencil, Plus, Trash2 } from "lucide-react";
+import { PlanRecipeSheet } from "@/components/MealSheets";
 import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ export function RecipeDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [servings, setServings] = useState<number | null>(null);
   const [done, setDone] = useState<Set<number>>(new Set());
+  const [planning, setPlanning] = useState(false);
 
   const stockByProduct = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
 
@@ -113,6 +115,10 @@ export function RecipeDetailPage() {
           {r.description && <p className="mt-3 whitespace-pre-line text-ink-2">{r.description}</p>}
         </div>
 
+        <button className="btn-primary w-full" onClick={() => setPlanning(true)}>
+          <CalendarPlus className="size-4" /> Ajouter au planning
+        </button>
+
         {/* Ingrédients */}
         <section>
           <div className="mb-2 flex items-center justify-between">
@@ -197,7 +203,7 @@ export function RecipeDetailPage() {
         )}
 
         <div className="grid grid-cols-3 gap-2 pb-4">
-          <Link to={`/recettes/${r.id}/modifier`} className="btn-primary">
+          <Link to={`/recettes/${r.id}/modifier`} className="btn-soft">
             <Pencil className="size-4" /> Modifier
           </Link>
           <button
@@ -216,6 +222,7 @@ export function RecipeDetailPage() {
           </button>
         </div>
       </div>
+      <PlanRecipeSheet recipeId={r.id} open={planning} onClose={() => setPlanning(false)} />
       {dialog}
     </div>
   );

@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
 import { api } from "./api";
+import { toastError } from "./errors";
 import type {
   Category,
   Invite,
@@ -28,7 +28,7 @@ export const keys = {
   search: (q: string) => ["search", q] as const,
 };
 
-const onError = (e: Error) => toast.error(e.message);
+const onError = toastError;
 
 // ─── Lectures ────────────────────────────────────────────────────────────────
 
@@ -44,7 +44,7 @@ export const useProduct = (id: string) =>
     // Affichage immédiat depuis la liste pendant le chargement du détail.
     placeholderData: () => {
       const p = qcRef.current?.getQueryData<Product[]>(keys.products)?.find((x) => x.id === id);
-      return p ? { ...p, movements: [], recipes: [] } : undefined;
+      return p ? { ...p, movements: [], recipes: [], purchases: [] } : undefined;
     },
   });
 export const useRecipes = () => useQuery({ queryKey: keys.recipes, queryFn: () => api.get<RecipeSummary[]>("/recipes") });

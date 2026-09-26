@@ -1,4 +1,4 @@
-// PM2 — Foyer (même VPS que astreinte / pointrh ; ports 3000-3003 déjà pris).
+// PM2 — Foyer (même VPS ; 3000-3004 et 3011 déjà pris par astreinte, pointrh, simulateur, pointrh-zd, veille, docker).
 //   pm2 start deploy/ecosystem.config.cjs && pm2 save
 module.exports = {
   apps: [
@@ -12,7 +12,7 @@ module.exports = {
       exec_mode: "fork",
       env: {
         NODE_ENV: "production",
-        PORT: 3004,
+        PORT: 3005,
         DATABASE_URL: "file:/var/data/foyer/foyer.db",
         UPLOAD_DIR: "/var/data/foyer/uploads",
       },

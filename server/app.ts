@@ -5,9 +5,12 @@ import { HTTPException } from "hono/http-exception";
 import { HttpError } from "./http";
 import { authRoutes, householdRoutes } from "./routes/auth";
 import { photoRoutes, searchRoutes } from "./routes/misc";
+import { planRoutes } from "./routes/plan";
 import { productRoutes, stockRoutes } from "./routes/products";
+import { inventoryRoutes, purchaseRoutes } from "./routes/purchases";
 import { recipeRoutes } from "./routes/recipes";
 import { categoryRoutes, locationRoutes } from "./routes/refs";
+import { shoppingRoutes } from "./routes/shopping";
 
 export const api = new Hono()
   // Refuse les requêtes d'écriture venant d'une autre origine (cookie SameSite=Lax en complément).
@@ -34,6 +37,10 @@ export const api = new Hono()
   .route("/recipes", recipeRoutes)
   .route("/photos", photoRoutes)
   .route("/search", searchRoutes)
+  .route("/plan", planRoutes)
+  .route("/shopping", shoppingRoutes)
+  .route("/purchases", purchaseRoutes)
+  .route("/inventory", inventoryRoutes)
   .get("/health", (c) => c.json({ ok: true }))
   .notFound((c) => c.json({ error: "Route inconnue" }, 404))
   .onError((err, c) => {

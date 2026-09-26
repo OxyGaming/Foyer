@@ -13,9 +13,20 @@ import {
   verifyPassword,
 } from "../auth";
 import { prisma } from "../db";
+import { DEFAULT_MEALS, MEALS } from "../../shared/dates";
 import { HttpError, optText, parseJson } from "../http";
 
 export const authRoutes = new Hono<{ Variables: AuthVars }>();
+
+function parseMealSlots(raw: string): string[] {
+  try {
+    const v = JSON.parse(raw);
+    const slots = Array.isArray(v) ? MEALS.filter((m) => v.includes(m)) : [];
+    return slots.length ? slots : DEFAULT_MEALS;
+  } catch {
+    return DEFAULT_MEALS;
+  }
+}
 
 const email = z.string().trim().toLowerCase().email().max(200);
 
@@ -74,13 +85,14 @@ authRoutes.get("/me", requireAuth, async (c) => {
       select: {
         id: true,
         name: true,
+        mealSlots: true,
         members: { select: { role: true, user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: "asc" } },
       },
     }),
   ]);
   return c.json({
     user,
-    household: { id: household.id, name: household.name, members: household.members.map((m) => ({ ...m.user, role: m.role })) },
+    household: { id: household.id, name: household.name, mealSlots: parseMealSlots(household.mealSlots), members: household.members.map((m) => ({ ...m.user, role: m.role })) },
   });
 });
 
@@ -98,8 +110,14 @@ export const householdRoutes = new Hono<{ Variables: AuthVars }>();
 householdRoutes.use(requireAuth);
 
 householdRoutes.patch("/", async (c) => {
-  const body = await parseJson(c.req, z.object({ name: optText(80) }));
-  await prisma.household.update({ where: { id: c.var.householdId }, data: { name: body.name ?? "Mon foyer" } });
+  const body = await parseJson(c.req, z.object({ name: optText(80).optional(), mealSlots: z.array(z.enum(MEALS)).min(1).optional() }));
+  await prisma.household.update({
+    where: { id: c.var.householdId },
+    data: {
+      ...(body.name !== undefined ? { name: body.name ?? "Mon foyer" } : {}),
+      ...(body.mealSlots ? { mealSlots: JSON.stringify(MEALS.filter((m) => body.mealSlots!.includes(m))) } : {}),
+    },
+  });
   return c.json({ ok: true });
 });
 

@@ -2,6 +2,7 @@ import { ClipboardCheck, MapPin, Minus, MoveRight, Pencil, Plus, Trash2 } from "
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
+import { PurchaseSection } from "@/components/PurchaseSection";
 import { NumberInput, PageHeader, PageLoader, Sheet, StatusBadge, Thumb, useConfirm } from "@/components/ui";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { useAdjustStock, useCategories, useDeleteProduct, useDeleteStockLine, useLocations, useProduct, useSetStock } from "@/lib/queries";
@@ -172,6 +173,8 @@ export function ProductDetailPage() {
             {p.notes && <p className="whitespace-pre-line text-ink-2">{p.notes}</p>}
           </section>
         )}
+
+        <PurchaseSection product={p} />
 
         {p.recipes.length > 0 && (
           <section>
