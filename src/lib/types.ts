@@ -50,6 +50,8 @@ export type Product = {
   quantity: number | null;
   status: StockStatus;
   toBuy: number | null;
+  /** Résumé des prix d'achat ; null si aucun prix exploitable. */
+  pricing: Pricing | null;
 };
 
 export type Movement = {
@@ -64,6 +66,7 @@ export type Movement = {
 
 export type ProductDetail = Product & {
   movements: Movement[];
+  purchases: Purchase[];
   recipes: { id: string; name: string; photoId: string | null }[];
 };
 
@@ -175,4 +178,31 @@ export type ShoppingItem = {
 export type ShoppingList = {
   list: { id: string; planFrom: string | null; planTo: string | null };
   items: ShoppingItem[];
+};
+
+// ─── Phase 3 : achats & prix ─────────────────────────────────────────────────
+
+export type PricePoint = { id: string; date: string; unitCents: number; isPromo: boolean; store: string | null };
+export type Pricing = { count: number; avgCents: number; last: PricePoint; best: PricePoint; history?: PricePoint[] };
+
+export type Purchase = {
+  id: string;
+  date: string;
+  quantity: number | null;
+  unit: string | null;
+  totalCents: number | null;
+  isPromo: boolean;
+  note: string | null;
+  store: { name: string } | null;
+};
+
+export type PurchaseWithProduct = Purchase & { productId: string; product: { name: string; categoryId: string | null; photoId: string | null } };
+export type Store = { id: string; name: string; usage: number };
+export type InventoryCorrection = {
+  id: string;
+  delta: number | null;
+  quantityAfter: number | null;
+  createdAt: string;
+  product: { id: string; name: string; unit: string | null };
+  stockItem: { locationId: string | null } | null;
 };

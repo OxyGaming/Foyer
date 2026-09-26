@@ -291,12 +291,14 @@ model Store {
 }
 
 /// Prix stocké en centimes (entier) ; prix unitaire = totalCents / quantity, calculé.
+/// quantity est exprimée dans `unit`, copie de l'unité du produit au moment de l'achat.
 model Purchase {
   id          String          @id @default(cuid())
   householdId String
   productId   String
   date        DateTime        @default(now())
   quantity    Float?
+  unit        String?
   totalCents  Int?
   storeId     String?
   isPromo     Boolean         @default(false)

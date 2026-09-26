@@ -1,7 +1,9 @@
-import { AlertTriangle, ChevronRight, Plus, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, Plus, Receipt, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { stockValueCents } from "../../shared/prices";
 import { matches } from "../../shared/text";
+import { formatCents } from "@/lib/format";
 import { ProductRow } from "@/components/ProductRow";
 import { QuickProductSheet } from "@/components/QuickProductSheet";
 import { Chips, EmptyState, PageHeader, PageLoader } from "@/components/ui";
@@ -10,6 +12,12 @@ import { descendantIds, pathLabel } from "@/lib/tree";
 import type { Category, Product } from "@/lib/types";
 
 type GroupBy = "category" | "location";
+
+/** Valeur totale au coût moyen ; null si aucun produit en stock n'a de prix. */
+export function totalStockValue(products: Product[] | undefined): number | null {
+  const values = (products ?? []).map((p) => stockValueCents(p.quantity, p.pricing?.avgCents)).filter((v): v is number => v != null);
+  return values.length ? values.reduce((a, b) => a + b, 0) : null;
+}
 
 const safeGet = (k: string) => { try { return localStorage.getItem(k); } catch { return null; } };
 const safeSet = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* stockage indisponible */ } };
@@ -34,6 +42,7 @@ export function StockPage() {
   const cats = useMemo(() => (categories.data ?? []).filter((c) => c.kind === "product"), [categories.data]);
   const locs = locations.data ?? [];
   const alerts = (products.data ?? []).filter((p) => p.status === "low" || p.status === "out" || p.status === "watch").length;
+  const stockValue = totalStockValue(products.data);
 
   const groups = useMemo(() => {
     let list = products.data ?? [];
@@ -98,6 +107,23 @@ export function StockPage() {
             </span>
             <ChevronRight className="size-5" />
           </Link>
+        )}
+
+        {(products.data?.length ?? 0) > 0 && (
+          <div className="grid grid-cols-3 gap-2">
+            <Link to="/stock/valeur" className="card flex flex-col items-center gap-1 p-2.5 text-center">
+              <Euro className="size-5 text-brand" />
+              <span className="text-xs font-semibold">{stockValue != null ? formatCents(stockValue, true) : "Valeur"}</span>
+            </Link>
+            <Link to="/achats" className="card flex flex-col items-center gap-1 p-2.5 text-center">
+              <Receipt className="size-5 text-brand" />
+              <span className="text-xs font-semibold">Dépenses</span>
+            </Link>
+            <Link to="/stock/inventaire" className="card flex flex-col items-center gap-1 p-2.5 text-center">
+              <ClipboardCheck className="size-5 text-brand" />
+              <span className="text-xs font-semibold">Inventaire</span>
+            </Link>
+          </div>
         )}
 
         {(products.data?.length ?? 0) > 0 && (
