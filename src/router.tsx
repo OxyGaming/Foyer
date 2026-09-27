@@ -14,6 +14,7 @@ import { StockPage } from "./pages/Stock";
 const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) =>
   lazy(() => load().then((m) => ({ default: m[name] })));
 const CookablePage = page(() => import("./pages/Cookable"), "CookablePage");
+const DuplicatesPage = page(() => import("./pages/Duplicates"), "DuplicatesPage");
 const InventoryPage = page(() => import("./pages/Inventory"), "InventoryPage");
 const SpendingPage = page(() => import("./pages/Spending"), "SpendingPage");
 const StatsPage = page(() => import("./pages/Stats"), "StatsPage");
@@ -102,6 +103,7 @@ export const router = createBrowserRouter([
           { path: "/stock/alertes", element: <RestockPage /> },
           { path: "/stock/valeur", element: <StockValuePage /> },
           { path: "/stock/inventaire", element: <InventoryPage /> },
+          { path: "/stock/doublons", element: <DuplicatesPage /> },
           { path: "/achats", element: <SpendingPage /> },
           { path: "/statistiques", element: <StatsPage /> },
           { path: "/produits/nouveau", element: <ProductEditPage /> },

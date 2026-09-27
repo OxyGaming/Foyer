@@ -1,8 +1,9 @@
-import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, Plus, Receipt, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, GitMerge, Plus, Receipt, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { stockValueCents } from "../../shared/prices";
 import { matches } from "../../shared/text";
+import { findDuplicates } from "@/lib/duplicates";
 import { formatCents } from "@/lib/format";
 import { ProductRow } from "@/components/ProductRow";
 import { QuickProductSheet } from "@/components/QuickProductSheet";
@@ -43,6 +44,7 @@ export function StockPage() {
   const locs = locations.data ?? [];
   const alerts = (products.data ?? []).filter((p) => p.status === "low" || p.status === "out" || p.status === "watch").length;
   const stockValue = totalStockValue(products.data);
+  const duplicates = useMemo(() => findDuplicates(products.data ?? []).length, [products.data]);
 
   const groups = useMemo(() => {
     let list = products.data ?? [];
@@ -106,6 +108,16 @@ export function StockPage() {
               {alerts} produit{alerts > 1 ? "s" : ""} à réapprovisionner
             </span>
             <ChevronRight className="size-5" />
+          </Link>
+        )}
+
+        {duplicates > 0 && (
+          <Link to="/stock/doublons" className="card flex items-center gap-3 border-watch/40 bg-watch-soft p-3.5">
+            <GitMerge className="size-5 text-watch" />
+            <span className="flex-1 font-semibold">
+              {duplicates} produit{duplicates > 1 ? "s" : ""} en double
+            </span>
+            <ChevronRight className="size-5 text-ink-3" />
           </Link>
         )}
 

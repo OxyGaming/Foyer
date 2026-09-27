@@ -5,17 +5,11 @@ import { toast } from "sonner";
 import { productKey } from "../../shared/text";
 import { PurchaseSection } from "@/components/PurchaseSection";
 import { NumberInput, PageHeader, PageLoader, Sheet, StatusBadge, Thumb, useConfirm } from "@/components/ui";
+import { stockSummary } from "@/lib/duplicates";
 import { formatDateTime, formatQty } from "@/lib/format";
 import { useAdjustStock, useCategories, useDeleteProduct, useDeleteStockLine, useLocations, useMergeProduct, useProduct, useProducts, useSetStock } from "@/lib/queries";
 import { flattenTree, pathLabel } from "@/lib/tree";
 import type { Location, Movement, Product, ProductDetail, StockLine } from "@/lib/types";
-
-/** « 2 kg · 1 emplacement » / « pas de stock » : de quoi reconnaître deux fiches homonymes. */
-function stockSummary(p: Pick<Product, "quantity" | "unit" | "stock">) {
-  if (!p.stock.length) return `pas de stock${p.unit ? ` · unité ${p.unit}` : ""}`;
-  const qty = p.quantity != null ? formatQty(p.quantity, p.unit) : "quantité inconnue";
-  return `${qty} · ${p.stock.length} emplacement${p.stock.length > 1 ? "s" : ""}`;
-}
 
 function MergeSheet({ product, others, initial, onClose }: { product: Product; others: Product[]; initial: string; onClose: () => void }) {
   const merge = useMergeProduct();
