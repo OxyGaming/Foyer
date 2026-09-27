@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { priceStats } from "../../shared/prices";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
+import { productKey } from "../../shared/text";
+import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma, type Tx } from "../db";
 import { HttpError, nameText, notFound, optId, optNumber, optText, optUnit, parseJson } from "../http";
@@ -116,19 +118,107 @@ productRoutes.get("/:id", async (c) => {
   return c.json({ ...present(p, true), movements, recipes, purchases });
 });
 
+/**
+ * Produit du même nom (au sens de productKey : « Huile d’olive » = « huile d'olive »)
+ * réutilisable plutôt que d'en créer un doublon : c'est le cas si ses unités sont
+ * comparables, ou s'il n'a encore aucun stock (souvent créé par une recette, son
+ * unité n'était alors qu'une supposition).
+ */
+async function reusableTwin(tx: Tx, householdId: string, name: string, unit: string | null) {
+  const key = productKey(name);
+  if (!key) return null;
+  const candidates = await tx.product.findMany({ where: { householdId }, select: { id: true, name: true, unit: true, _count: { select: { stockItems: true } } } });
+  const twins = candidates.filter((p) => productKey(p.name) === key);
+  return twins.find((p) => compatibleUnits(p.unit, unit)) ?? twins.find((p) => p._count.stockItems === 0) ?? null;
+}
+
 productRoutes.post("/", async (c) => {
   const body = await parseJson(c.req, productInput);
   const householdId = c.var.householdId;
   await assertRefs(householdId, body);
   const { quantity, locationId, ...fields } = body;
-  const id = await prisma.$transaction(async (tx) => {
-    const p = await tx.product.create({ data: { ...fields, householdId, defaultLocationId: fields.defaultLocationId ?? locationId } });
-    if (quantity != null || locationId) {
-      await setStock(tx, { householdId, productId: p.id, locationId, quantity, type: "adjust", userId: c.var.userId, note: "Création" });
+  const { id, reused } = await prisma.$transaction(async (tx) => {
+    const twin = await reusableTwin(tx, householdId, fields.name, fields.unit ?? null);
+    let productId: string;
+    let qty = quantity;
+    if (twin) {
+      // Sans stock, l'unité saisie remplace celle supposée par une recette ;
+      // sinon on garde celle du produit et on y convertit la quantité.
+      const adoptUnit = twin._count.stockItems === 0;
+      if (!adoptUnit && qty != null) qty = roundQty(convertQty(qty, fields.unit, twin.unit) ?? qty);
+      // Complète le produit existant sans écraser ce qui est déjà renseigné.
+      const current = await tx.product.findUniqueOrThrow({ where: { id: twin.id } });
+      const fill = Object.fromEntries(
+        Object.entries({ ...fields, defaultLocationId: fields.defaultLocationId ?? locationId }).filter(
+          ([k, v]) => k !== "name" && (k === "unit" ? adoptUnit :v != null && current[k as keyof typeof current] == null),
+        ),
+      );
+      if (Object.keys(fill).length) await tx.product.update({ where: { id: twin.id }, data: fill });
+      productId = twin.id;
+    } else {
+      productId = (await tx.product.create({ data: { ...fields, householdId, defaultLocationId: fields.defaultLocationId ?? locationId } })).id;
     }
-    return p.id;
+    if (qty != null || locationId) {
+      await setStock(tx, { householdId, productId, locationId, quantity: qty, type: "adjust", userId: c.var.userId, note: twin ? undefined : "Création" });
+    }
+    return { id: productId, reused: !!twin };
   });
-  return c.json(present(await loadProduct(householdId, id)), 201);
+  return c.json({ ...present(await loadProduct(householdId, id)), reused }, reused ? 200 : 201);
+});
+
+/**
+ * Fusionne ce produit dans `intoId` puis le supprime : stock, historique,
+ * achats, ingrédients de recettes et articles de courses suivent. Le produit
+ * gardé conserve ses informations et complète celles qui lui manquent.
+ */
+productRoutes.post("/:id/merge", async (c) => {
+  const householdId = c.var.householdId;
+  const source = await loadProduct(householdId, c.req.param("id"));
+  const { intoId } = await parseJson(c.req, z.object({ intoId: z.string().min(1).max(64) }));
+  if (intoId === source.id) throw new HttpError(400, "Choisissez un autre produit");
+  const target = await loadProduct(householdId, intoId);
+
+  // Quantités converties dans l'unité du produit gardé ; refus si ce n'est pas possible.
+  const converted = source.stockItems.map((line) => {
+    if (line.quantity == null) return { line, quantity: null };
+    const q = convertQty(line.quantity, source.unit, target.unit);
+    if (q == null) throw new HttpError(400, `Unités incompatibles (${source.unit ?? "pièce"} / ${target.unit ?? "pièce"}) : alignez l'unité d'un des deux produits avant de fusionner.`);
+    return { line, quantity: roundQty(q) };
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const { line, quantity } of converted) {
+      const twin = target.stockItems.find((t) => t.locationId === line.locationId);
+      if (twin) {
+        const merged = twin.quantity == null && quantity == null ? null : roundQty((twin.quantity ?? 0) + (quantity ?? 0));
+        await tx.stockItem.update({ where: { id: twin.id }, data: { quantity: merged } });
+        await tx.stockMovement.updateMany({ where: { stockItemId: line.id }, data: { stockItemId: twin.id } });
+        await tx.stockItem.delete({ where: { id: line.id } });
+      } else {
+        await tx.stockItem.update({ where: { id: line.id }, data: { productId: target.id, quantity } });
+      }
+    }
+    await tx.stockMovement.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+    await tx.purchase.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+    await tx.recipeIngredient.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+    await tx.shoppingListItem.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+
+    const sameUnit = compatibleUnits(source.unit, target.unit);
+    const fill: Record<string, unknown> = {};
+    for (const k of ["photoId", "categoryId", "defaultLocationId", "brand", "reference", "notes"] as const) {
+      if (target[k] == null && source[k] != null) fill[k] = source[k];
+    }
+    // Seuils : seulement s'ils s'expriment dans la même unité.
+    if (sameUnit) {
+      for (const k of ["minStock", "targetStock"] as const) {
+        if (target[k] == null && source[k] != null) fill[k] = convertQty(source[k]!, source.unit, target.unit);
+      }
+    }
+    if (Object.keys(fill).length) await tx.product.update({ where: { id: target.id }, data: fill });
+    await tx.product.delete({ where: { id: source.id } });
+  });
+  if (source.photoId && source.photoId !== target.photoId && target.photoId != null) await releasePhoto(source.photoId);
+  return c.json(present(await loadProduct(householdId, target.id)));
 });
 
 productRoutes.patch("/:id", async (c) => {

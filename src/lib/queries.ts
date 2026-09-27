@@ -1,6 +1,7 @@
 import { DEFAULT_WEEK_START } from "../../shared/dates";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
+import { toast } from "sonner";
 import { api, isOfflineError } from "./api";
 import { toastError } from "./errors";
 import type {
@@ -80,11 +81,30 @@ export function useSaveProduct() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, data }: { id?: string; data: ProductInput }) =>
-      id ? api.patch<Product>(`/products/${id}`, data) : api.post<Product>("/products", data),
+      id ? api.patch<Product>(`/products/${id}`, data) : api.post<Product & { reused?: boolean }>("/products", data),
     onSuccess: (p) => {
+      // Le serveur a réutilisé un produit du même nom plutôt que de créer un doublon.
+      if ("reused" in p && p.reused) toast.info(`« ${p.name} » existait déjà : c'est ce produit qui a été complété.`);
       putProduct(qc, p);
       qc.invalidateQueries({ queryKey: keys.product(p.id) });
       qc.invalidateQueries({ queryKey: keys.categories });
+    },
+    onError,
+  });
+}
+
+/** Fusionne `id` dans `intoId` (le premier disparaît). */
+export function useMergeProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, intoId }: { id: string; intoId: string }) => api.post<Product>(`/products/${id}/merge`, { intoId }),
+    onSuccess: (p, { id }) => {
+      qc.setQueryData<Product[]>(keys.products, (l) => l?.filter((x) => x.id !== id));
+      qc.removeQueries({ queryKey: keys.product(id) });
+      putProduct(qc, p);
+      qc.invalidateQueries({ queryKey: keys.product(p.id) });
+      qc.invalidateQueries({ queryKey: keys.recipes });
+      qc.invalidateQueries({ queryKey: ["shopping"] });
     },
     onError,
   });

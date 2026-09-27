@@ -93,6 +93,57 @@ describe("stock", () => {
   });
 });
 
+describe("doublons de produits", () => {
+  let d: Client;
+  beforeAll(async () => {
+    d = await userWithHousehold("d@foyer.test", "Foyer D");
+  });
+
+  it("réutilise le produit créé par une recette au lieu d'en faire un doublon", async () => {
+    const r = await d.call("POST", "/recipes", { name: "Crumble", ingredients: [{ name: "Farine", quantity: 100, unit: "g" }, { name: "Huile d’olive", quantity: 2, unit: "cs" }] });
+    const [farineId, huileId] = r.body.ingredients.map((i: { productId: string }) => i.productId);
+    // Rangé depuis l'écran Stock, sans unité : même fiche, l'unité supposée par la recette est remplacée.
+    const farine = await d.call("POST", "/products", { name: "farine", quantity: 2 });
+    expect(farine.status).toBe(200);
+    expect(farine.body).toMatchObject({ id: farineId, reused: true, unit: null, quantity: 2 });
+    // Apostrophe droite vs courbe : même produit.
+    expect((await d.call("POST", "/products", { name: "Huile d'olive", quantity: 1, unit: "L" })).body).toMatchObject({ id: huileId, unit: "L" });
+    // Déjà en stock en kg : la quantité saisie en g est convertie.
+    const sucre = await d.call("POST", "/products", { name: "Sucre", quantity: 1, unit: "kg" });
+    expect((await d.call("POST", "/products", { name: "sucre", quantity: 500, unit: "g" })).body).toMatchObject({ id: sucre.body.id, unit: "kg", quantity: 0.5 });
+  });
+
+  it("fusionne deux fiches : stock, recettes, achats et historique suivent", async () => {
+    const locs = (await d.call("GET", "/locations")).body;
+    const keep = (await d.call("POST", "/products", { name: "Sel fin", quantity: 1, unit: "kg", locationId: locs[0].id })).body;
+    const drop = (await d.call("POST", "/products", { name: "Sel de table", quantity: 500, unit: "g", locationId: locs[0].id, minStock: 200 })).body;
+    await d.call("POST", "/purchases", { productId: drop.id, quantity: 500, totalCents: 90 });
+    const dropQty = (await d.call("GET", `/products/${drop.id}`)).body.quantity; // en g
+    const r = await d.call("POST", "/recipes", { name: "Pâtes", ingredients: [{ name: "Sel", productId: drop.id, quantity: 1, unit: "pincée" }] });
+
+    const merged = await d.call("POST", `/products/${drop.id}/merge`, { intoId: keep.id });
+    expect(merged.status).toBe(200);
+    expect(merged.body).toMatchObject({ id: keep.id, quantity: 1 + dropQty / 1000, minStock: 0.2 });
+    expect(merged.body.stock).toHaveLength(1);
+    expect((await d.call("GET", `/products/${drop.id}`)).status).toBe(404);
+    expect((await d.call("GET", `/recipes/${r.body.id}`)).body.ingredients[0].productId).toBe(keep.id);
+    const detail = (await d.call("GET", `/products/${keep.id}`)).body;
+    expect(detail.purchases.length).toBeGreaterThan(0);
+
+    // Unités incomparables avec du stock : refus explicite, rien n'est modifié.
+    const paquet = (await d.call("POST", "/products", { name: "Pâtes", quantity: 2, unit: "paquet" })).body;
+    const refus = await d.call("POST", `/products/${paquet.id}/merge`, { intoId: keep.id });
+    expect(refus.status).toBe(400);
+    expect((await d.call("GET", `/products/${paquet.id}`)).status).toBe(200);
+  });
+
+  it("ne fusionne pas avec le produit d'un autre foyer", async () => {
+    const mine = (await d.call("POST", "/products", { name: "Poivre" })).body;
+    const theirs = (await b.call("POST", "/products", { name: "Poivre" })).body;
+    expect((await d.call("POST", `/products/${mine.id}/merge`, { intoId: theirs.id })).status).toBe(404);
+  });
+});
+
 describe("recettes ↔ produits", () => {
   it("relie les ingrédients au même produit malgré accents et ligatures", async () => {
     const r1 = await a.call("POST", "/recipes", { name: "Crêpes", ingredients: [{ name: "Œufs", quantity: 3 }, { name: "Sel" }] });

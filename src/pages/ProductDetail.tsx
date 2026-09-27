@@ -1,13 +1,83 @@
-import { ClipboardCheck, MapPin, Minus, MoveRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { ClipboardCheck, GitMerge, MapPin, Minus, MoveRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
+import { productKey } from "../../shared/text";
 import { PurchaseSection } from "@/components/PurchaseSection";
 import { NumberInput, PageHeader, PageLoader, Sheet, StatusBadge, Thumb, useConfirm } from "@/components/ui";
 import { formatDateTime, formatQty } from "@/lib/format";
-import { useAdjustStock, useCategories, useDeleteProduct, useDeleteStockLine, useLocations, useProduct, useSetStock } from "@/lib/queries";
+import { useAdjustStock, useCategories, useDeleteProduct, useDeleteStockLine, useLocations, useMergeProduct, useProduct, useProducts, useSetStock } from "@/lib/queries";
 import { flattenTree, pathLabel } from "@/lib/tree";
-import type { Location, Movement, ProductDetail, StockLine } from "@/lib/types";
+import type { Location, Movement, Product, ProductDetail, StockLine } from "@/lib/types";
+
+/** « 2 kg · 1 emplacement » / « pas de stock » : de quoi reconnaître deux fiches homonymes. */
+function stockSummary(p: Pick<Product, "quantity" | "unit" | "stock">) {
+  if (!p.stock.length) return `pas de stock${p.unit ? ` · unité ${p.unit}` : ""}`;
+  const qty = p.quantity != null ? formatQty(p.quantity, p.unit) : "quantité inconnue";
+  return `${qty} · ${p.stock.length} emplacement${p.stock.length > 1 ? "s" : ""}`;
+}
+
+function MergeSheet({ product, others, initial, onClose }: { product: Product; others: Product[]; initial: string; onClose: () => void }) {
+  const merge = useMergeProduct();
+  const navigate = useNavigate();
+  const [otherId, setOtherId] = useState(initial);
+  const other = others.find((o) => o.id === otherId);
+  // Par défaut on garde la fiche qui a du stock : c'est elle que l'on consulte.
+  const [keepThis, setKeepThis] = useState(() => !other || product.stock.length >= other.stock.length);
+  if (!other) return null;
+  const keep = keepThis ? product : other;
+  const drop = keepThis ? other : product;
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        await merge.mutateAsync({ id: drop.id, intoId: keep.id });
+        toast.success("Produits fusionnés");
+        onClose();
+        if (keep.id !== product.id) navigate(`/produits/${keep.id}`, { replace: true });
+      }}
+    >
+      <select
+        className="input"
+        value={otherId}
+        onChange={(e) => {
+          const o = others.find((x) => x.id === e.target.value);
+          setOtherId(e.target.value);
+          setKeepThis(!o || product.stock.length >= o.stock.length);
+        }}
+        aria-label="Produit à fusionner"
+      >
+        {others.map((o) => (
+          <option key={o.id} value={o.id}>
+            {o.name || "Sans nom"} — {stockSummary(o)}
+          </option>
+        ))}
+      </select>
+      <fieldset className="space-y-2">
+        <legend className="mb-1 text-sm font-semibold">Fiche à garder</legend>
+        {[product, other].map((p) => (
+          <label key={p.id} className={`card flex items-center gap-3 p-3 ${keep.id === p.id ? "border-brand ring-1 ring-brand/30" : ""}`}>
+            <input type="radio" className="size-4 accent-[var(--brand)]" checked={keep.id === p.id} onChange={() => setKeepThis(p.id === product.id)} />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">
+                {p.name || "Sans nom"}
+                {p.id === product.id && <span className="font-normal text-ink-3"> (cette fiche)</span>}
+              </span>
+              <span className="text-xs text-ink-2">{stockSummary(p)}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <p className="text-xs text-ink-2">
+        « {drop.name || "Sans nom"} » disparaît : son stock, son historique, ses achats, les recettes et les courses qui l'utilisent passent sur « {keep.name || "Sans nom"} ». Les informations manquantes de la fiche gardée sont complétées.
+      </p>
+      <button className="btn-primary w-full" disabled={merge.isPending}>
+        <GitMerge className="size-4" /> Fusionner
+      </button>
+    </form>
+  );
+}
 
 const MOVE_LABEL: Record<Movement["type"], string> = {
   adjust: "Ajustement",
@@ -42,6 +112,8 @@ export function ProductDetailPage() {
   const setStock = useSetStock();
   const delLine = useDeleteStockLine();
   const delProduct = useDeleteProduct();
+  const allProducts = useProducts();
+  const [mergeWith, setMergeWith] = useState<string | null>(null);
   const navigate = useNavigate();
   const { ask, dialog: confirmDialog } = useConfirm();
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -61,6 +133,11 @@ export function ProductDetailPage() {
   const locs = locations.data ?? [];
   const cats = categories.data ?? [];
   const cat = cats.find((c) => c.id === p.categoryId);
+  // Homonymes d'abord (« Huile d’olive » = « huile d'olive »), puis le reste par ordre alphabétique.
+  const key = productKey(p.name);
+  const others = (allProducts.data ?? []).filter((x) => x.id !== p.id);
+  const twins = key ? others.filter((x) => productKey(x.name) === key) : [];
+  const mergeChoices = [...twins, ...others.filter((x) => !twins.includes(x))];
 
   const open = (d: Dialog) => {
     setDialog(d);
@@ -106,6 +183,20 @@ export function ProductDetailPage() {
             {p.toBuy != null && <p className="mt-1 text-sm font-semibold">À acheter : {formatQty(p.toBuy, p.unit)}</p>}
           </div>
         </div>
+
+        {twins.length > 0 && (
+          <div className="card border-watch/40 bg-watch-soft p-3">
+            <p className="text-sm font-semibold">
+              {twins.length > 1 ? `${twins.length} autres produits s'appellent` : "Un autre produit s'appelle"} aussi « {p.name} »
+            </p>
+            <p className="mt-0.5 text-xs text-ink-2">
+              {twins.map(stockSummary).join(" ; ")}. Recettes et courses ne voient que l'une des deux fiches : fusionnez-les.
+            </p>
+            <button className="btn-soft mt-2 min-h-9 text-sm" onClick={() => setMergeWith(twins[0].id)}>
+              <GitMerge className="size-4" /> Fusionner
+            </button>
+          </div>
+        )}
 
         {(p.minStock != null || p.targetStock != null) && (
           <div className="grid grid-cols-2 gap-3">
@@ -214,10 +305,19 @@ export function ProductDetailPage() {
           </section>
         )}
 
+        {others.length > 0 && (
+          <button className="btn-soft w-full" onClick={() => setMergeWith(mergeChoices[0].id)}>
+            <GitMerge className="size-4" /> Fusionner avec un autre produit
+          </button>
+        )}
         <button className="btn-danger w-full" onClick={onDelete}>
           <Trash2 className="size-4" /> Supprimer le produit
         </button>
       </div>
+
+      <Sheet open={mergeWith != null} onClose={() => setMergeWith(null)} title="Fusionner deux produits">
+        {mergeWith && <MergeSheet key={mergeWith} product={p} others={mergeChoices} initial={mergeWith} onClose={() => setMergeWith(null)} />}
+      </Sheet>
 
       {/* Inventaire : saisie du comptage réel */}
       <Sheet open={dialog?.kind === "count"} onClose={() => setDialog(null)} title="Inventaire">
