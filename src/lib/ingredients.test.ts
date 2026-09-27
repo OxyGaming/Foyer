@@ -11,6 +11,17 @@ describe("parseIngredientLine", () => {
     expect(parseIngredientLine("2,5 kg de pommes de terre")).toMatchObject({ name: "Pommes de terre", quantity: 2.5, unit: "kg" });
     expect(parseIngredientLine("1 c. à soupe d'huile")).toMatchObject({ name: "Huile", quantity: 1, unit: "c. à soupe" });
   });
+  it("comprend les variantes d'unités et les écrit toujours pareil", () => {
+    expect(parseIngredientLine("1 Kg de farine")).toMatchObject({ name: "Farine", quantity: 1, unit: "kg" });
+    expect(parseIngredientLine("1 kilo de pommes")).toMatchObject({ name: "Pommes", quantity: 1, unit: "kg" });
+    expect(parseIngredientLine("500 grammes de farine")).toMatchObject({ name: "Farine", quantity: 500, unit: "g" });
+    expect(parseIngredientLine("500 gr de farine")).toMatchObject({ name: "Farine", quantity: 500, unit: "g" });
+    expect(parseIngredientLine("1 litre de lait")).toMatchObject({ name: "Lait", quantity: 1, unit: "L" });
+    expect(parseIngredientLine("2 cs d'huile")).toMatchObject({ name: "Huile", quantity: 2, unit: "c. à soupe" });
+    expect(parseIngredientLine("2 cuillères à café de sucre")).toMatchObject({ name: "Sucre", quantity: 2, unit: "c. à café" });
+    expect(parseIngredientLine("3 pincées de sel")).toMatchObject({ name: "Sel", quantity: 3, unit: "pincée" });
+    expect(parseIngredientLine("Farine : 1 Kg")).toMatchObject({ name: "Farine", quantity: 1, unit: "kg" });
+  });
   it("lit une quantité sans unité", () => {
     expect(parseIngredientLine("3 œufs")).toMatchObject({ name: "Œufs", quantity: 3, unit: null });
   });

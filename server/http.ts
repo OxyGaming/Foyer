@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canonicalUnit } from "../shared/units";
 
 export class HttpError extends Error {
   constructor(
@@ -25,6 +26,9 @@ export const optText = (max = 500) =>
       const t = v?.trim();
       return t ? t : null;
     });
+
+/** Unité : écriture unique (« Kg », « kilo » → « kg »), vide → null. */
+export const optUnit = () => optText(24).transform(canonicalUnit);
 
 /** Chaîne non nulle (défaut ""), pour les noms : jamais obligatoire. */
 export const nameText = (max = 200) =>

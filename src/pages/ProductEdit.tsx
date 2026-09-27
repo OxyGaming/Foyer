@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { PhotoPicker } from "@/components/PhotoPicker";
 import { Field, NumberInput, PageHeader, PageLoader, Spinner } from "@/components/ui";
-import { UNIT_SUGGESTIONS } from "@/lib/format";
+import { STOCK_UNIT_SUGGESTIONS } from "@/lib/format";
 import { useCategories, useLocations, useProduct, useSaveProduct } from "@/lib/queries";
 import { flattenTree } from "@/lib/tree";
 import type { Product, ProductInput } from "@/lib/types";
@@ -74,7 +74,7 @@ function ProductForm({ product }: { product?: Product }) {
           </button>
         }
       />
-      <datalist id="units">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist>
+      <datalist id="units">{STOCK_UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist>
       <div className="space-y-5 px-4 pb-8">
         <Field label="Nom">{(fid) => <input id={fid} className="input text-lg font-semibold" placeholder="Ex. Lessive" value={d.name} onChange={(e) => set("name", e.target.value)} />}</Field>
 

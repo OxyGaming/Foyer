@@ -1,4 +1,5 @@
 import { normalize } from "../../shared/text";
+import { canonicalUnit } from "../../shared/units";
 import { parseNum } from "./format";
 import { parseIngredientLine } from "./ingredients";
 import { type ImportedRecipe, type ParsedImport, markDuplicates } from "./recipeImport";
@@ -144,7 +145,7 @@ export function parseRecipeSheets(sheets: SheetInput[], existingNames: string[] 
       const name = text(row[cols.recipe ?? -1]) || last;
       const label = text(row[cols.ingredient ?? -1]);
       const rawQty = row[cols.quantity ?? -1];
-      const unit = text(row[cols.unit ?? -1]) || null;
+      const unit = canonicalUnit(text(row[cols.unit ?? -1]));
       const notes = [text(row[cols.note ?? -1])].filter(Boolean);
       if (!label && !text(rawQty)) return;
       if (!name) return void ignored.push(`${s.sheet}, ligne ${line} : recette non indiquée pour « ${label} »`);

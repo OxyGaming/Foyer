@@ -3,7 +3,7 @@ import { z } from "zod";
 import { productKey } from "../../shared/text";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma, type Tx } from "../db";
-import { HttpError, nameText, notFound, optId, optInt, optNumber, optText, parseJson } from "../http";
+import { HttpError, nameText, notFound, optId, optInt, optNumber, optText, optUnit, parseJson } from "../http";
 import { assertPhoto, releasePhoto } from "../photos";
 
 export const recipeRoutes = new Hono<{ Variables: AuthVars }>();
@@ -13,7 +13,7 @@ const ingredientInput = z.object({
   name: nameText(120),
   productId: optId,
   quantity: optNumber,
-  unit: optText(24),
+  unit: optUnit(),
   note: optText(200),
 });
 

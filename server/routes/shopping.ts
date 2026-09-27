@@ -7,7 +7,7 @@ import { normalize } from "../../shared/text";
 import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma } from "../db";
-import { HttpError, nameText, notFound, optId, optNumber, optText, parseJson } from "../http";
+import { HttpError, nameText, notFound, optId, optNumber, optText, optUnit, parseJson } from "../http";
 import { addToStock, defaultStockLocation } from "./products";
 import { resolveStore } from "./purchases";
 
@@ -138,7 +138,7 @@ shoppingRoutes.post("/items", async (c) => {
   const householdId = c.var.householdId;
   const body = await parseJson(
     c.req,
-    z.object({ id: clientId, name: nameText(120), productId: optId, quantity: optNumber, unit: optText(24), note: optText(200) }),
+    z.object({ id: clientId, name: nameText(120), productId: optId, quantity: optNumber, unit: optUnit(), note: optText(200) }),
   );
   if (body.id) {
     const existing = await prisma.shoppingListItem.findUnique({ where: { id: body.id }, select: { ...itemSelect, householdId: true } });
@@ -205,7 +205,7 @@ shoppingRoutes.patch("/items/:id", async (c) => {
       checked: z.boolean().optional(),
       quantity: optNumber.optional(),
       resetQuantity: z.boolean().optional(),
-      unit: optText(24).optional(),
+      unit: optUnit().optional(),
       name: nameText(120).optional(),
       note: optText(200).optional(),
     }),

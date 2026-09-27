@@ -29,6 +29,8 @@ export function parseNum(s: string): number | null {
 export const numToInput = (n: number | null | undefined) => (n == null ? "" : String(n).replace(".", ","));
 
 export const UNIT_SUGGESTIONS = ["pièce", "g", "kg", "ml", "cl", "L", "paquet", "boîte", "bouteille", "sachet", "pot", "rouleau", "tube", "c. à soupe", "c. à café", "pincée"];
+/** Pour le stock, seulement des unités d'achat : on ne compte pas le sel en pincées. */
+export const STOCK_UNIT_SUGGESTIONS = ["pièce", "g", "kg", "ml", "cl", "L", "paquet", "boîte", "bouteille", "brique", "sachet", "pot", "barquette", "rouleau", "tube"];
 
 const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
 const euroShort = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });

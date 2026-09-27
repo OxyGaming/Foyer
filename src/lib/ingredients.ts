@@ -1,17 +1,20 @@
+import { canonicalUnit } from "../../shared/units";
 import { parseNum } from "./format";
 import type { Ingredient } from "./types";
 
 // Unités reconnues en tête de ligne (« 500 ml de lait », « 2 c. à soupe d'huile »).
 const UNITS = [
   "c. à soupe", "c. à café", "cuillères à soupe", "cuillères à café", "cuillère à soupe", "cuillère à café", "cs", "cc", "càs", "càc",
-  "kg", "g", "mg", "l", "cl", "ml", "dl",
+  "c.à.s", "c.à.c", "cas", "cac",
+  "kilogrammes", "kilogramme", "kilos", "kilo", "kgs", "kg", "grammes", "gramme", "grs", "gr", "g", "mg",
+  "litres", "litre", "lt", "l", "centilitres", "centilitre", "cl", "millilitres", "millilitre", "ml", "dl",
   "pincées", "pincée", "sachets", "sachet", "boîtes", "boîte", "pots", "pot", "tranches", "tranche", "gousses", "gousse",
   "pièces", "pièce", "paquets", "paquet", "bouteilles", "bouteille", "verres", "verre", "tasses", "tasse", "brins", "brin",
   "morceaux", "morceau", "briques", "brique", "bocaux", "bocal", "feuilles", "feuille", "bottes", "botte", "poignées", "poignée", "cubes", "cube",
 ];
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const unitRe = new RegExp(`^(${UNITS.map(escapeRe).join("|")})(?=\\s|$)\\s*`, "i");
+const unitRe = new RegExp(`^(${[...UNITS].sort((a, b) => b.length - a.length).map(escapeRe).join("|")})(?=\\s|$)\\s*`, "i");
 // « 5-6 tomates », « 2 à 3 oignons » : on retient le haut de la fourchette (plus sûr pour les courses).
 const rangeRe = /^(\d+(?:[.,]\d+)?)\s*(?:-|–|à)\s*(\d+(?:[.,]\d+)?)\s+/;
 const numRe = /^(\d+(?:[.,]\d+)?|\d+\/\d+|½|¼|¾)\s*/;
@@ -60,7 +63,7 @@ export function parseIngredientLine(line: string): Omit<Ingredient, "id"> | null
     rest = rest.slice(num[0].length);
     const u = rest.match(unitRe);
     if (u) {
-      unit = u[1].toLowerCase() === "l" ? "L" : u[1];
+      unit = canonicalUnit(u[1]);
       rest = rest.slice(u[0].length);
     }
     rest = rest.replace(/^(de |d'|d’)/i, "");
@@ -75,7 +78,7 @@ export function parseIngredientLine(line: string): Omit<Ingredient, "id"> | null
   if (tail) {
     rest = tail[1];
     quantity = parseNum(tail[2]);
-    unit = tail[3].trim() || null;
+    unit = canonicalUnit(tail[3]);
   }
   const name = rest.trim();
   if (!name && quantity == null) return null;

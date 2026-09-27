@@ -4,22 +4,47 @@
 
 type Unit = { dim: string; factor: number; label: string };
 
+// Une seule écriture par unité : « Kg », « kilo », « kgs » → « kg » ;
+// « cs », « càs », « cuillère à soupe » → « c. à soupe ». Les variantes sont
+// comparées sans accents, points, espaces ni apostrophes, en minuscules.
+// ⚠ La migration 20260927110000_unit_canonical reprend cette table.
+const ALIASES: Record<string, string[]> = {
+  "kg": ["kg", "kgs", "kilo", "kilos", "kilogramme", "kilogrammes", "kilogram", "kilograms"],
+  "g": ["g", "gr", "grs", "gramme", "grammes", "gram", "grams"],
+  "mg": ["mg", "milligramme", "milligrammes"],
+  "L": ["l", "lt", "ltr", "litre", "litres", "liter"],
+  "cl": ["cl", "centilitre", "centilitres"],
+  "ml": ["ml", "millilitre", "millilitres"],
+  "dl": ["dl", "decilitre", "decilitres"],
+  "pièce": ["piece", "pieces", "pc", "pcs", "unite", "unites"],
+  "c. à soupe": ["cs", "cas", "casoupe", "cuilasoupe", "cuillereasoupe", "cuilleresasoupe", "cuillerasoupe", "cuillersasoupe"],
+  "c. à café": ["cc", "cac", "cacafe", "cuilacafe", "cuillereacafe", "cuilleresacafe", "cuilleracafe", "cuillersacafe"],
+  "pincée": ["pincee", "pincees"],
+};
+const compact = (s: string) =>
+  s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[.\s'’]/g, "");
+const CANONICAL = new Map(Object.entries(ALIASES).flatMap(([canon, variants]) => variants.map((v) => [v, canon] as const)));
+
+/** Écriture unique d'une unité ; une unité inconnue (« gousse ») est gardée telle quelle. Vide → null. */
+export function canonicalUnit(unit: string | null | undefined): string | null {
+  const t = (unit ?? "").trim().replace(/\s+/g, " ");
+  if (!t) return null;
+  return CANONICAL.get(compact(t)) ?? t;
+}
+
 const KNOWN: Record<string, Unit> = {
   mg: { dim: "mass", factor: 0.001, label: "mg" },
   g: { dim: "mass", factor: 1, label: "g" },
-  gr: { dim: "mass", factor: 1, label: "g" },
-  gramme: { dim: "mass", factor: 1, label: "g" },
   kg: { dim: "mass", factor: 1000, label: "kg" },
-  kilo: { dim: "mass", factor: 1000, label: "kg" },
   ml: { dim: "volume", factor: 1, label: "ml" },
   cl: { dim: "volume", factor: 10, label: "cl" },
   dl: { dim: "volume", factor: 100, label: "dl" },
-  l: { dim: "volume", factor: 1000, label: "L" },
-  litre: { dim: "volume", factor: 1000, label: "L" },
-  piece: { dim: "count", factor: 1, label: "" },
-  pc: { dim: "count", factor: 1, label: "" },
-  unite: { dim: "count", factor: 1, label: "" },
-  u: { dim: "count", factor: 1, label: "" },
+  L: { dim: "volume", factor: 1000, label: "L" },
+  pièce: { dim: "count", factor: 1, label: "" },
 };
 
 function key(unit: string | null | undefined): string {
@@ -34,9 +59,9 @@ function key(unit: string | null | undefined): string {
 }
 
 export function parseUnit(unit: string | null | undefined): Unit {
-  const k = key(unit);
-  if (!k) return KNOWN.piece;
-  return KNOWN[k] ?? { dim: `other:${k}`, factor: 1, label: unit!.trim() };
+  const c = canonicalUnit(unit);
+  if (!c) return KNOWN.pièce;
+  return KNOWN[c] ?? { dim: `other:${key(c)}`, factor: 1, label: c };
 }
 
 // « 1 pincée de sel », « poivre à goût » : on ne mesure pas, seule la présence compte.

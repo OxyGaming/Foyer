@@ -4,7 +4,7 @@ import { priceStats } from "../../shared/prices";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma, type Tx } from "../db";
-import { HttpError, nameText, notFound, optId, optNumber, optText, parseJson } from "../http";
+import { HttpError, nameText, notFound, optId, optNumber, optText, optUnit, parseJson } from "../http";
 import { assertPhoto, releasePhoto } from "../photos";
 
 export const productRoutes = new Hono<{ Variables: AuthVars }>();
@@ -14,7 +14,7 @@ const productFields = {
   name: nameText(120),
   photoId: optId,
   categoryId: optId,
-  unit: optText(24),
+  unit: optUnit(),
   minStock: optNumber,
   targetStock: optNumber,
   defaultLocationId: optId,
