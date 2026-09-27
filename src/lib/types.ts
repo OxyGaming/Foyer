@@ -92,7 +92,7 @@ export type RecipeSummary = {
   difficulty: number | null;
   updatedAt: string;
   categoryIds: string[];
-  ingredients: { name: string; productId: string | null }[];
+  ingredients: { name: string; productId: string | null; quantity: number | null; unit: string | null }[];
   stepCount: number;
 };
 

@@ -1,10 +1,11 @@
-import { AlertTriangle, BookOpen, CalendarDays, ChevronRight, Package, Plus, Search, Settings, ShoppingCart } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, CalendarDays, ChefHat, ChevronRight, Package, Plus, Search, Settings, ShoppingCart } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { addDays, MEAL_LABEL, type Meal, todayIso, weekDays, weekStart } from "../../shared/dates";
 import { AddMealSheet, type Slot, useMealSlots } from "@/components/MealSheets";
 import { QuickProductSheet } from "@/components/QuickProductSheet";
 import { Thumb } from "@/components/ui";
+import { useCookable } from "@/lib/cookable";
 import { formatCents } from "@/lib/format";
 import { usePlan } from "@/lib/planQueries";
 import { usePurchases } from "@/lib/purchaseQueries";
@@ -76,6 +77,8 @@ export function HomePage() {
   const alerts = stats.out + stats.low + stats.watch;
   const toBuy = toBuyCount(shopping.data?.items);
   const stockValue = totalStockValue(products.data);
+  const cookable = useCookable();
+  const readyCount = cookable.data?.ranked.filter((c) => c.complete).length ?? 0;
   const recentPurchases = usePurchases(addDays(today, -29), today);
   const priced = (recentPurchases.data ?? []).filter((p) => p.totalCents != null);
   const spent30 = priced.length ? priced.reduce((s, p) => s + p.totalCents!, 0) : null;
@@ -90,14 +93,18 @@ export function HomePage() {
   return (
     <div className="space-y-6 pb-4">
       <header className="pt-safe flex items-start justify-between px-4 pt-4">
-        <div>
-          <p className="text-ink-2">{me.data?.household.name}</p>
-          <h1 className="text-3xl font-bold tracking-tight">
+        <div className="min-w-0">
+          <p className="truncate text-ink-2">{me.data?.household.name}</p>
+          <h1 className="text-[26px] leading-tight font-bold tracking-tight">
             {greeting()}
-            {firstName ? ` ${firstName}` : ""} 👋
+            {/* Espace insécable : l'emoji reste collé au prénom. */}
+            {firstName ? ` ${firstName}` : ""}{" "}👋
           </h1>
         </div>
-        <div className="flex">
+        <div className="flex shrink-0">
+          <Link to="/statistiques" className="icon-btn" aria-label="Statistiques">
+            <BarChart3 className="size-6" />
+          </Link>
           <Link to="/recherche" className="icon-btn" aria-label="Rechercher">
             <Search className="size-6" />
           </Link>
@@ -145,6 +152,18 @@ export function HomePage() {
           </button>
         )}
       </section>
+
+      {readyCount > 0 && (
+        <div className="px-4">
+          <Link to="/recettes/avec-mon-stock" className="card flex items-center gap-3 border-ok/30 bg-ok-soft p-3.5">
+            <ChefHat className="size-5 text-ok" />
+            <span className="flex-1 font-semibold">
+              {readyCount} recette{readyCount > 1 ? "s" : ""} réalisable{readyCount > 1 ? "s" : ""} avec votre stock
+            </span>
+            <ChevronRight className="size-5 text-ink-3" />
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 px-4">
         {/* 📅 Semaine */}

@@ -5,7 +5,9 @@ import { addDays, formatDayShort, MEAL_LABEL, type Meal, relativeDayLabel, today
 import { consumptionFor } from "../../shared/needs";
 import { matches } from "../../shared/text";
 import { formatQty } from "@/lib/format";
-import { clientId, useAddMeal, useCookMeal, useRemoveMeal, useUpdateMeal } from "@/lib/planQueries";
+import { useCookable } from "@/lib/cookable";
+import { clientId, useAddMeal, useCookMeal, usePlan, useRemoveMeal, useUpdateMeal } from "@/lib/planQueries";
+import { suggestRecipes } from "@/lib/suggestions";
 import { useMe, useProducts, useRecipe, useRecipes } from "@/lib/queries";
 import type { MealPlanItem, RecipeSummary } from "@/lib/types";
 import { NumberInput, Sheet, Spinner, Thumb } from "./ui";
@@ -71,6 +73,16 @@ export function AddMealSheet({ slot, onClose }: { slot: Slot | null; onClose: ()
     return q.trim() ? all.filter((r) => matches(r.name, q) || r.tags.some((t) => matches(t, q))) : all;
   }, [recipes.data, q]);
 
+  // Suggestions : historique récent du planning + ce qui est réalisable avec le stock.
+  const date = slot?.date ?? todayIso();
+  const history = usePlan(addDays(date, -60), addDays(date, 14));
+  const cookable = useCookable();
+  const suggestions = useMemo(
+    () => suggestRecipes(recipes.data ?? [], cookable.data?.byId, history.data ?? [], date),
+    [recipes.data, cookable.data, history.data, date],
+  );
+  const showSuggestions = !q.trim() && (suggestions.ready.length > 0 || suggestions.forgotten.length > 0);
+
   const close = () => {
     setQ("");
     setFree("");
@@ -94,7 +106,32 @@ export function AddMealSheet({ slot, onClose }: { slot: Slot | null; onClose: ()
         <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" />
         <input className="input pl-10" type="search" placeholder="Chercher une recette…" value={q} onChange={(e) => setQ(e.target.value)} />
       </label>
-      <div className="-mx-1 max-h-[45dvh] space-y-1 overflow-y-auto px-1">
+      {showSuggestions && (
+        <div className="mb-3 space-y-3">
+          {(
+            [
+              ["✓ Avec votre stock", suggestions.ready],
+              ["❤️ Pas au menu depuis un moment", suggestions.forgotten],
+            ] as const
+          ).map(([title, items]) =>
+            items.length ? (
+              <div key={title}>
+                <p className="mb-1.5 text-xs font-bold tracking-wide text-ink-2 uppercase">{title}</p>
+                <div className="no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5">
+                  {items.map((r) => (
+                    <button key={r.id} className="w-24 shrink-0 text-left active:scale-[0.98]" onClick={() => pick(r)}>
+                      <Thumb photoId={r.photoId} fallback="🍽️" className="aspect-square w-full rounded-xl" />
+                      <span className="mt-1 line-clamp-2 block text-xs leading-tight font-medium">{r.name || "Sans nom"}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null,
+          )}
+          <p className="text-xs font-bold tracking-wide text-ink-2 uppercase">Toutes les recettes</p>
+        </div>
+      )}
+      <div className={`-mx-1 space-y-1 overflow-y-auto px-1 ${showSuggestions ? "max-h-[30dvh]" : "max-h-[45dvh]"}`}>
         {list.map((r) => (
           <button key={r.id} className="flex w-full items-center gap-3 rounded-xl p-2 text-left active:bg-surface-2" onClick={() => pick(r)}>
             <Thumb photoId={r.photoId} fallback="🍽️" className="size-12 shrink-0 rounded-lg" />
@@ -191,7 +228,7 @@ function MealMenu({ item, setMode, onClose }: { item: MealPlanItem; setMode: (m:
         </div>
       </div>
       {dirty && (
-        <button className="btn-soft w-full" onClick={() => update.mutate({ id: item.id, patch: { servings, note: note || null } }, { onSuccess: onClose })}>
+        <button className="btn-soft w-full" onClick={() => { update.mutate({ id: item.id, patch: { servings, note: note || null } }); onClose(); }}>
           Enregistrer portions et note
         </button>
       )}
@@ -208,12 +245,12 @@ function MealMenu({ item, setMode, onClose }: { item: MealPlanItem; setMode: (m:
           <Copy className="size-5 text-ink-2" /> Dupliquer vers…
         </button>
         {item.cookedAt ? (
-          <button className={row} onClick={() => update.mutate({ id: item.id, patch: { cooked: false } }, { onSuccess: onClose })}>
+          <button className={row} onClick={() => { update.mutate({ id: item.id, patch: { cooked: false } }); onClose(); }}>
             <Undo2 className="size-5 text-ink-2" /> Annuler « cuisiné »
             <span className="ml-auto text-xs font-normal text-ink-3">le stock n'est pas remis</span>
           </button>
         ) : (
-          <button className={row} onClick={() => (item.recipeId ? setMode("cook") : update.mutate({ id: item.id, patch: { cooked: true } }, { onSuccess: onClose }))}>
+          <button className={row} onClick={() => { if (item.recipeId) setMode("cook"); else { update.mutate({ id: item.id, patch: { cooked: true } }); onClose(); } }}>
             <ChefHat className="size-5 text-ink-2" /> C'est cuisiné
           </button>
         )}

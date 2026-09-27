@@ -32,8 +32,8 @@ export function StockValuePage() {
     const groups = new Map<string, BarItem>();
     const add = (key: string, label: string, cents: number | null) => {
       if (!cents) return;
-      const g = groups.get(key) ?? { key, label, valueCents: 0 };
-      g.valueCents += cents;
+      const g = groups.get(key) ?? { key, label, value: 0 };
+      g.value += cents;
       groups.set(key, g);
     };
     for (const p of valued) {
@@ -48,7 +48,7 @@ export function StockValuePage() {
         }
       }
     }
-    const items = [...groups.values()].sort((a, b) => b.valueCents - a.valueCents);
+    const items = [...groups.values()].sort((a, b) => b.value - a.value);
     const top = [...valued]
       .map((p) => ({ p, v: stockValueCents(p.quantity, p.pricing!.avgCents) ?? 0 }))
       .sort((a, b) => b.v - a.v)

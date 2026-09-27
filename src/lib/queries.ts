@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
-import { api } from "./api";
+import { api, isOfflineError } from "./api";
 import { toastError } from "./errors";
 import type {
   Category,
@@ -107,12 +107,19 @@ function recompute<T extends Product>(p: T): T {
 }
 
 /** +1 / −1 instantané (optimiste), réconcilié avec la réponse du serveur. */
-export function useAdjustStock() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ itemId, delta }: { productId: string; itemId: string; delta: number }) =>
-      api.post<Product>(`/stock/${itemId}/adjust`, { delta }),
-    onMutate: async ({ productId, itemId, delta }) => {
+type Adjust = { productId: string; itemId: string; delta: number };
+
+/**
+ * +1 / −1 instantané (optimiste). Déclaré par clé pour être persisté et rejoué
+ * hors ligne : le serveur applique des variations relatives, l'ordre suffit.
+ */
+export function registerStockMutations(qc: QueryClient) {
+  qc.setMutationDefaults(["stock", "adjust"], {
+    scope: { id: "stock" },
+    retry: (_n: number, e: Error) => isOfflineError(e),
+    retryDelay: 1000,
+    mutationFn: ({ itemId, delta }: Adjust) => api.post<Product>(`/stock/${itemId}/adjust`, { delta }),
+    onMutate: async ({ productId, itemId, delta }: Adjust) => {
       await qc.cancelQueries({ queryKey: keys.products });
       const apply = <T extends Product>(p: T): T =>
         recompute({
@@ -122,13 +129,25 @@ export function useAdjustStock() {
       qc.setQueryData<Product[]>(keys.products, (l) => l?.map((p) => (p.id === productId ? apply(p) : p)));
       qc.setQueryData<ProductDetail>(keys.product(productId), (d) => (d ? apply(d) : d));
     },
-    onSuccess: (p) => putProduct(qc, p),
+    // Plusieurs appuis en file : on n'écrase l'affichage qu'avec la dernière réponse.
+    onSuccess: (p: Product) => {
+      if (qc.isMutating({ mutationKey: ["stock", "adjust"] }) <= 1) putProduct(qc, p);
+    },
+  });
+}
+
+export function useAdjustStock() {
+  const qc = useQueryClient();
+  return useMutation<Product, Error, Adjust>({
+    mutationKey: ["stock", "adjust"],
     onError: (e, v) => {
       onError(e);
       qc.invalidateQueries({ queryKey: keys.products });
       qc.invalidateQueries({ queryKey: keys.product(v.productId) });
     },
-    onSettled: (_p, _e, v) => qc.invalidateQueries({ queryKey: keys.product(v.productId), exact: true }),
+    onSettled: (_p, _e, v) => {
+      if (qc.isMutating({ mutationKey: ["stock", "adjust"] }) <= 1) qc.invalidateQueries({ queryKey: keys.product(v.productId), exact: true });
+    },
   });
 }
 

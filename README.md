@@ -83,10 +83,14 @@ Rien n'est enregistré avant l'aperçu : les doublons (mêmes mots dans n'import
 
 `shared/prices.ts` (testé) : coût moyen **pondéré par les quantités** (6 × 0,99 + 6 × 1,09 + 6 × 1,05 → 1,04 €/unité), dernier prix, meilleur prix, historique. Les achats sont ramenés à l'unité actuelle du produit (500 g → 0,5 kg) ; les unités incomparables et les achats sans prix sont ignorés : **sans prix exploitable, rien n'est affiché**. La valeur du stock = quantité × coût moyen, uniquement pour les produits qui ont un prix (les autres sont listés comme « non comptés »). Les prix au gramme / millilitre s'affichent au kilo / litre.
 
+### Que puis-je cuisiner ?
+
+`shared/cookable.ts` (testé) : pour chaque recette, chaque ingrédient chiffré relié au stock est disponible, insuffisant (« encore 2 ») ou manquant, avec conversion d'unités et portions prévues. Les basiques (sans quantité, ou « 1 pincée ») ne bloquent jamais une recette : ils sont seulement signalés « à vérifier ». Un produit présent sans quantité connue est considéré comme disponible.
+
 ### Hors connexion
 
 - Lecture : cache TanStack Query persisté dans IndexedDB (20 jours ; au-delà de ~24,8 jours `setTimeout` déborde).
-- Courses : cocher, ajouter, corriger et retirer fonctionnent sans réseau, **même si l'appli est fermée puis rouverte** ; les actions sont rejouées dans l'ordre au retour. Un serveur injoignable avec réseau actif (Wi-Fi du magasin) est traité comme hors ligne.
+- Courses, planning (ajouter, déplacer, retirer un repas) et boutons +/− du stock fonctionnent sans réseau, **même si l'appli est fermée puis rouverte** ; les actions sont rejouées dans l'ordre au retour. Un serveur injoignable avec réseau actif (Wi-Fi du magasin) est traité comme hors ligne.
 - Les actions qui relisent planning et stock (recalcul, rangement des achats) attendent le réseau.
 
 ## Feuille de route
@@ -94,4 +98,4 @@ Rien n'est enregistré avant l'aperçu : les doublons (mêmes mots dans n'import
 - [x] **Phase 1** : comptes et foyer partagé, recettes (photos, ingrédients, étapes, catégories, tags, favoris, portions ajustables), produits et stock multi-emplacements, catégories et emplacements hiérarchiques, alertes de stock, inventaire, recherche globale, lecture hors ligne
 - [x] **Phase 2** : planning hebdomadaire (glisser-déposer tactile + « Déplacer vers… » / « Dupliquer vers… »), repas affichés configurables, liste de courses générée depuis le planning moins le stock, articles manuels et produits sous le seuil, rangement des achats dans le stock (achat + prix), « C'est cuisiné » qui déduit les ingrédients, cases à cocher hors ligne persistantes
 - [x] **Phase 3** : saisie et correction des achats (prix total ou unitaire, magasin, promo), prix moyen pondéré, dernier et meilleur prix, courbe des prix, valeur du stock (totale, par catégorie, par emplacement), page Dépenses (par semaine/mois, catégorie, magasin), magasin au rangement des courses, inventaire par emplacement avec historique des corrections
-- [ ] **Phase 4** : statistiques, « Que puis-je cuisiner avec mon stock ? »
+- [x] **Phase 4** : « Que puis-je cuisiner avec mon stock ? » (recettes classées, manquants ajoutés aux courses en un geste, aussi sur chaque fiche), suggestions au moment de planifier (réalisables avec le stock, favoris oubliés), statistiques (repas planifiés/cuisinés, recettes les plus faites, produits les plus achetés), planning et +/− du stock utilisables hors ligne, pages chargées à la demande

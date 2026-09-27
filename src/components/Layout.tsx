@@ -1,8 +1,9 @@
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
 import { BookOpen, CalendarDays, Home, Package, ShoppingCart, WifiOff } from "lucide-react";
 import { toBuyCount, useShopping } from "@/lib/shoppingQueries";
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useOnline } from "@/lib/connectivity";
+import { PageLoader } from "./ui";
 
 export { useOnline };
 import { NavLink, Outlet } from "react-router";
@@ -65,7 +66,9 @@ export function Layout() {
     <div className="mx-auto min-h-dvh max-w-3xl">
       <OfflineBanner />
       <main className="pb-28">
-        <Outlet />
+        <Suspense fallback={<PageLoader />}>
+          <Outlet />
+        </Suspense>
       </main>
       <UpdatePrompt />
       <nav className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 backdrop-blur-md">

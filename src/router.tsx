@@ -1,25 +1,36 @@
+import { type ComponentType, lazy, Suspense } from "react";
 import { Navigate, Outlet, createBrowserRouter, useLocation, useRouteError } from "react-router";
 import { Layout } from "./components/Layout";
 import { PageLoader } from "./components/ui";
 import { ApiError } from "./lib/api";
 import { useMe } from "./lib/queries";
 import { HomePage } from "./pages/Home";
-import { InventoryPage } from "./pages/Inventory";
-import { SpendingPage } from "./pages/Spending";
-import { StockValuePage } from "./pages/StockValue";
 import { LoginPage, RegisterPage } from "./pages/Login";
-import { PlanningPage } from "./pages/Planning";
-import { ProductDetailPage } from "./pages/ProductDetail";
-import { ProductEditPage } from "./pages/ProductEdit";
-import { RecipeDetailPage } from "./pages/RecipeDetail";
-import { RecipeEditPage } from "./pages/RecipeEdit";
-import { RecipeImportPage } from "./pages/RecipeImport";
 import { RecipesPage } from "./pages/Recipes";
-import { RestockPage } from "./pages/Restock";
-import { SearchPage } from "./pages/Search";
-import { ShoppingPage } from "./pages/Shopping";
-import { CategoriesPage, LocationsPage, SettingsPage } from "./pages/Settings";
 import { StockPage } from "./pages/Stock";
+
+// Pages chargées à la demande : l'accueil s'affiche plus vite. Le service worker
+// met quand même tous les morceaux en cache, l'appli reste utilisable hors ligne.
+const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
+const CookablePage = page(() => import("./pages/Cookable"), "CookablePage");
+const InventoryPage = page(() => import("./pages/Inventory"), "InventoryPage");
+const SpendingPage = page(() => import("./pages/Spending"), "SpendingPage");
+const StatsPage = page(() => import("./pages/Stats"), "StatsPage");
+const StockValuePage = page(() => import("./pages/StockValue"), "StockValuePage");
+const PlanningPage = page(() => import("./pages/Planning"), "PlanningPage");
+const PlanningPrintPage = page(() => import("./pages/PlanningPrint"), "PlanningPrintPage");
+const ProductDetailPage = page(() => import("./pages/ProductDetail"), "ProductDetailPage");
+const ProductEditPage = page(() => import("./pages/ProductEdit"), "ProductEditPage");
+const RecipeDetailPage = page(() => import("./pages/RecipeDetail"), "RecipeDetailPage");
+const RecipeEditPage = page(() => import("./pages/RecipeEdit"), "RecipeEditPage");
+const RecipeImportPage = page(() => import("./pages/RecipeImport"), "RecipeImportPage");
+const RestockPage = page(() => import("./pages/Restock"), "RestockPage");
+const SearchPage = page(() => import("./pages/Search"), "SearchPage");
+const ShoppingPage = page(() => import("./pages/Shopping"), "ShoppingPage");
+const SettingsPage = page(() => import("./pages/Settings"), "SettingsPage");
+const CategoriesPage = page(() => import("./pages/Settings"), "CategoriesPage");
+const LocationsPage = page(() => import("./pages/Settings"), "LocationsPage");
 
 function RequireAuth() {
   const me = useMe();
@@ -66,12 +77,22 @@ export const router = createBrowserRouter([
     element: <RequireAuth />,
     errorElement: <RouteError />,
     children: [
+      // Hors de la mise en page de l'appli : pas de barre de navigation sur la feuille imprimée.
+      {
+        path: "/planning/imprimer",
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <PlanningPrintPage />
+          </Suspense>
+        ),
+      },
       {
         element: <Layout />,
         children: [
           { path: "/", element: <HomePage /> },
           { path: "/recettes", element: <RecipesPage /> },
           { path: "/recettes/nouvelle", element: <RecipeEditPage /> },
+          { path: "/recettes/avec-mon-stock", element: <CookablePage /> },
           { path: "/recettes/importer", element: <RecipeImportPage /> },
           { path: "/recettes/:id", element: <RecipeDetailPage /> },
           { path: "/recettes/:id/modifier", element: <RecipeEditPage /> },
@@ -82,6 +103,7 @@ export const router = createBrowserRouter([
           { path: "/stock/valeur", element: <StockValuePage /> },
           { path: "/stock/inventaire", element: <InventoryPage /> },
           { path: "/achats", element: <SpendingPage /> },
+          { path: "/statistiques", element: <StatsPage /> },
           { path: "/produits/nouveau", element: <ProductEditPage /> },
           { path: "/produits/:id", element: <ProductDetailPage /> },
           { path: "/produits/:id/modifier", element: <ProductEditPage /> },

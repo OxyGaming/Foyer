@@ -1,6 +1,10 @@
+// Planning. Ajouter, déplacer et retirer un repas fonctionnent hors ligne :
+// comme pour les courses, ces actions sont déclarées par clé
+// (setMutationDefaults), persistées dans IndexedDB et rejouées dans l'ordre
+// (scope commun) au retour du réseau, même après fermeture de l'appli.
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "./api";
+import { api, isOfflineError } from "./api";
 import { toastError } from "./errors";
 import { keys } from "./queries";
 import type { MealPlanItem } from "./types";
@@ -32,30 +36,31 @@ function sortPlan(items: MealPlanItem[]) {
 }
 
 export type NewMeal = { date: string; meal: MealPlanItem["meal"]; recipeId?: string | null; title?: string | null; servings?: number | null };
+export type MealPatch = Partial<Pick<MealPlanItem, "date" | "meal" | "position" | "servings" | "note" | "title">> & { cooked?: boolean };
 
-export function useAddMeal() {
-  const qc = useQueryClient();
-  return useMutation({
+const scope = { id: "plan" };
+const offline = { retry: (_n: number, e: Error) => isOfflineError(e), retryDelay: 1000 };
+
+export function registerPlanMutations(qc: QueryClient) {
+  qc.setMutationDefaults(["plan", "add"], {
+    scope,
+    ...offline,
     mutationFn: (m: NewMeal & { id: string }) => api.post<MealPlanItem>("/plan", m),
-    onMutate: (m) => {
+    onMutate: (m: NewMeal & { id: string }) => {
       editPlans(qc, (items, r) => {
-        if (!inRange(m.date, r)) return items;
+        if (!inRange(m.date, r) || items.some((i) => i.id === m.id)) return items;
         const position = items.filter((i) => i.date === m.date && i.meal === m.meal).length;
         return sortPlan([...items, { id: m.id, date: m.date, meal: m.meal, position, recipeId: m.recipeId ?? null, title: m.title ?? null, servings: m.servings ?? null, note: null, cookedAt: null }]);
       });
     },
-    onError: toastError,
-    onSettled: () => qc.invalidateQueries({ queryKey: ["plan"] }),
   });
-}
 
-/** Déplacement optimiste : l'élément change de créneau immédiatement. */
-export function useUpdateMeal() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, patch }: { id: string; patch: Partial<Pick<MealPlanItem, "date" | "meal" | "position" | "servings" | "note" | "title">> & { cooked?: boolean } }) =>
-      api.patch<MealPlanItem>(`/plan/${id}`, patch),
-    onMutate: async ({ id, patch }) => {
+  // Déplacement optimiste : l'élément change de créneau immédiatement.
+  qc.setMutationDefaults(["plan", "update"], {
+    scope,
+    ...offline,
+    mutationFn: ({ id, patch }: { id: string; patch: MealPatch }) => api.patch<MealPlanItem>(`/plan/${id}`, patch),
+    onMutate: async ({ id, patch }: { id: string; patch: MealPatch }) => {
       await qc.cancelQueries({ queryKey: ["plan"] });
       let moving: MealPlanItem | undefined;
       for (const [, data] of qc.getQueriesData<MealPlanItem[]>({ queryKey: ["plan"] })) moving ??= data?.find((i) => i.id === id);
@@ -74,21 +79,37 @@ export function useUpdateMeal() {
         return sortPlan([...rest.filter((i) => !renum.has(i.id)), ...slot.map((i) => ({ ...i, position: renum.get(i.id)! }))]);
       });
     },
-    onError: toastError,
-    onSettled: () => qc.invalidateQueries({ queryKey: ["plan"] }),
   });
+
+  qc.setMutationDefaults(["plan", "remove"], {
+    scope,
+    ...offline,
+    mutationFn: (id: string) => api.del(`/plan/${id}`),
+    onMutate: (id: string) => editPlans(qc, (items) => items.filter((i) => i.id !== id)),
+  });
+}
+
+/** Rafraîchit le planning une fois la file d'actions vidée (évite de revenir en arrière entre deux envois). */
+function settle(qc: QueryClient) {
+  if (qc.isMutating({ mutationKey: ["plan"] }) <= 1) qc.invalidateQueries({ queryKey: ["plan"] });
+}
+
+export function useAddMeal() {
+  const qc = useQueryClient();
+  return useMutation<MealPlanItem, Error, NewMeal & { id: string }>({ mutationKey: ["plan", "add"], onError: toastError, onSettled: () => settle(qc) });
+}
+
+export function useUpdateMeal() {
+  const qc = useQueryClient();
+  return useMutation<MealPlanItem, Error, { id: string; patch: MealPatch }>({ mutationKey: ["plan", "update"], onError: toastError, onSettled: () => settle(qc) });
 }
 
 export function useRemoveMeal() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => api.del(`/plan/${id}`),
-    onMutate: (id) => editPlans(qc, (items) => items.filter((i) => i.id !== id)),
-    onError: toastError,
-    onSettled: () => qc.invalidateQueries({ queryKey: ["plan"] }),
-  });
+  return useMutation<unknown, Error, string>({ mutationKey: ["plan", "remove"], onError: toastError, onSettled: () => settle(qc) });
 }
 
+/** « C'est cuisiné » : en ligne uniquement (il faut l'état réel du stock). */
 export function useCookMeal() {
   const qc = useQueryClient();
   return useMutation({

@@ -44,24 +44,26 @@ function Tooltip({ x, y, width, children }: { x: number; y: number; width: numbe
 
 // ─── Liste de barres horizontales (répartition) ──────────────────────────────
 
-export type BarItem = { key: string; label: ReactNode; valueCents: number; hint?: string };
+export type BarItem = { key: string; label: ReactNode; value: number; hint?: string };
+type Fmt = (v: number) => string;
+const money: Fmt = (v) => formatCents(v);
 
 /** Classement avec barres : valeur lisible sur chaque ligne (c'est aussi la vue tableau). */
-export function BarList({ items, total }: { items: BarItem[]; total: number }) {
-  const max = Math.max(...items.map((i) => i.valueCents), 1);
+export function BarList({ items, total, format = money }: { items: BarItem[]; total: number; format?: Fmt }) {
+  const max = Math.max(...items.map((i) => i.value), 1);
   return (
     <ul className="space-y-3">
       {items.map((i) => {
-        const share = total > 0 ? Math.round((i.valueCents / total) * 100) : 0;
+        const share = total > 0 ? Math.round((i.value / total) * 100) : 0;
         return (
-          <li key={i.key} title={`${i.hint ?? ""}${formatCents(i.valueCents)} · ${share} %`}>
+          <li key={i.key} title={`${i.hint ?? ""}${format(i.value)} · ${share} %`}>
             <div className="mb-1 flex items-baseline gap-2 text-sm">
               <span className="min-w-0 flex-1 truncate font-medium">{i.label}</span>
-              <span className="font-semibold tabular-nums">{formatCents(i.valueCents)}</span>
+              <span className="font-semibold tabular-nums">{format(i.value)}</span>
               <span className="w-10 text-right text-xs text-ink-3 tabular-nums">{share} %</span>
             </div>
             <div className="h-2.5 w-full">
-              <div className="h-full rounded-r-[4px] bg-chart" style={{ width: `${Math.max(2, (i.valueCents / max) * 100)}%` }} />
+              <div className="h-full rounded-r-[4px] bg-chart" style={{ width: `${Math.max(2, (i.value / max) * 100)}%` }} />
             </div>
           </li>
         );
@@ -72,9 +74,10 @@ export function BarList({ items, total }: { items: BarItem[]; total: number }) {
 
 // ─── Colonnes (dépenses par période) ─────────────────────────────────────────
 
-export type Column = { key: string; label: string; tooltip: string; valueCents: number };
+export type Column = { key: string; label: string; tooltip: string; value: number };
 
-export function ColumnChart({ data, height = 170, ariaLabel }: { data: Column[]; height?: number; ariaLabel: string }) {
+export function ColumnChart({ data, height = 170, ariaLabel, format = money, axisFormat }: { data: Column[]; height?: number; ariaLabel: string; format?: Fmt; axisFormat?: Fmt }) {
+  const tick = axisFormat ?? ((v: number) => formatCents(v, true));
   const [ref, width] = useWidth<HTMLDivElement>();
   const [active, setActive] = useState<number | null>(null);
   const padL = 44;
@@ -82,7 +85,7 @@ export function ColumnChart({ data, height = 170, ariaLabel }: { data: Column[];
   const padT = 10;
   const plotW = Math.max(0, width - padL);
   const plotH = height - padB - padT;
-  const maxV = Math.max(...data.map((d) => d.valueCents), 0);
+  const maxV = Math.max(...data.map((d) => d.value), 0);
   const step = niceStep(maxV || 100);
   const top = Math.max(step, Math.ceil(maxV / step) * step);
   const band = data.length ? plotW / data.length : 0;
@@ -99,16 +102,16 @@ export function ColumnChart({ data, height = 170, ariaLabel }: { data: Column[];
             <g key={t}>
               <line x1={padL} x2={width} y1={y(t)} y2={y(t)} stroke="var(--chart-grid)" strokeWidth={1} />
               <text x={padL - 6} y={y(t)} dy="0.32em" textAnchor="end" className="fill-ink-3 text-[10px] tabular-nums">
-                {formatCents(t, true).replace(/\s?€/, " €")}
+                {tick(t)}
               </text>
             </g>
           ))}
           {data.map((d, i) => {
             const x = padL + i * band + (band - colW) / 2;
-            const h = Math.max(0, plotH - (y(d.valueCents) - padT));
+            const h = Math.max(0, plotH - (y(d.value) - padT));
             return (
               <g key={d.key}>
-                {d.valueCents > 0 && <path d={columnPath(x, y(d.valueCents), colW, h)} fill="var(--chart)" opacity={active == null || active === i ? 1 : 0.45} />}
+                {d.value > 0 && <path d={columnPath(x, y(d.value), colW, h)} fill="var(--chart)" opacity={active == null || active === i ? 1 : 0.45} />}
                 {i % labelEvery === 0 && (
                   <text x={padL + i * band + band / 2} y={height - 6} textAnchor="middle" className="fill-ink-3 text-[10px]">
                     {d.label}
@@ -122,9 +125,9 @@ export function ColumnChart({ data, height = 170, ariaLabel }: { data: Column[];
         </svg>
       )}
       {active != null && data[active] && (
-        <Tooltip x={padL + active * band + band / 2} y={y(data[active].valueCents)} width={width}>
+        <Tooltip x={padL + active * band + band / 2} y={y(data[active].value)} width={width}>
           <span className="block text-bg/70">{data[active].tooltip}</span>
-          <b>{formatCents(data[active].valueCents)}</b>
+          <b>{format(data[active].value)}</b>
         </Tooltip>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeNeeds, consumptionFor, type NeedsProduct, type NeedsRecipe } from "./needs";
-import { convertQty, roundForPurchase, unitDimension } from "./units";
+import { convertQty, readableQty, roundForPurchase, unitDimension } from "./units";
 
 const products = (list: NeedsProduct[]) => new Map(list.map((p) => [p.id, p]));
 const recipes = (list: NeedsRecipe[]) => new Map(list.map((r) => [r.id, r]));
@@ -27,6 +27,13 @@ describe("unités", () => {
   });
   it("sépare les unités inconnues", () => {
     expect(unitDimension("c. à soupe")).not.toBe(unitDimension("g"));
+  });
+  it("choisit une unité lisible pour les totaux", () => {
+    expect(readableQty(1500, "ml")).toEqual({ quantity: 1.5, unit: "L" });
+    expect(readableQty(150, "cl")).toEqual({ quantity: 1.5, unit: "L" });
+    expect(readableQty(2600, "g")).toEqual({ quantity: 2.6, unit: "kg" });
+    expect(readableQty(250, "g")).toEqual({ quantity: 250, unit: "g" });
+    expect(readableQty(6, null)).toEqual({ quantity: 6, unit: null });
   });
   it("arrondit les pièces au-dessus", () => {
     expect(roundForPurchase(1.2, null)).toBe(2);
