@@ -1,3 +1,4 @@
+import { DEFAULT_WEEK_START } from "../../shared/dates";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
 import { api, isOfflineError } from "./api";
@@ -33,6 +34,8 @@ const onError = toastError;
 // ─── Lectures ────────────────────────────────────────────────────────────────
 
 export const useMe = () => useQuery({ queryKey: keys.me, queryFn: () => api.get<Me>("/auth/me"), retry: false });
+/** Premier jour de la semaine choisi par le foyer (0 = dimanche … 6 = samedi). */
+export const useWeekStartDay = () => useMe().data?.household.weekStartDay ?? DEFAULT_WEEK_START;
 export const useCategories = () => useQuery({ queryKey: keys.categories, queryFn: () => api.get<Category[]>("/categories") });
 export const useLocations = () => useQuery({ queryKey: keys.locations, queryFn: () => api.get<Location[]>("/locations") });
 export const useProducts = () => useQuery({ queryKey: keys.products, queryFn: () => api.get<Product[]>("/products") });

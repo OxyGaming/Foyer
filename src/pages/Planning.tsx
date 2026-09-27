@@ -18,7 +18,7 @@ import { addDays, formatDayLong, formatDayMonth, isIsoDate, MEAL_LABEL, type Mea
 import { AddMealSheet, MealSheet, type Slot, useMealSlots } from "@/components/MealSheets";
 import { PageHeader, PageLoader, Thumb } from "@/components/ui";
 import { usePlan, useUpdateMeal } from "@/lib/planQueries";
-import { useRecipes } from "@/lib/queries";
+import { useRecipes, useWeekStartDay } from "@/lib/queries";
 import type { MealPlanItem, RecipeSummary } from "@/lib/types";
 
 const slotId = (date: string, meal: string) => `slot|${date}|${meal}`;
@@ -114,11 +114,12 @@ function SlotRow({ date, meal, items, recipes, onAdd, onOpen }: { date: string; 
 
 export function PlanningPage() {
   const today = todayIso();
+  const firstDay = useWeekStartDay();
   const [params, setParams] = useSearchParams();
   const requested = params.get("semaine");
-  const monday = weekStart(requested && isIsoDate(requested) ? requested : today);
-  const sunday = addDays(monday, 6);
-  const plan = usePlan(monday, sunday);
+  const weekFrom = weekStart(requested && isIsoDate(requested) ? requested : today, firstDay);
+  const weekTo = addDays(weekFrom, 6);
+  const plan = usePlan(weekFrom, weekTo);
   const recipes = useRecipes();
   const meals = useMealSlots();
   const update = useUpdateMeal();
@@ -147,12 +148,12 @@ export function PlanningPage() {
   // Semaine en cours : on amène directement sur aujourd'hui.
   const scrolled = useRef(false);
   useEffect(() => {
-    if (scrolled.current || plan.isPending || monday !== weekStart(today) || today === monday) return;
+    if (scrolled.current || plan.isPending || weekFrom !== weekStart(today, firstDay) || today === weekFrom) return;
     scrolled.current = true;
     document.getElementById(`day-${today}`)?.scrollIntoView({ block: "start" });
-  }, [plan.isPending, monday, today]);
+  }, [plan.isPending, weekFrom, today, firstDay]);
 
-  const goWeek = (delta: number) => setParams({ semaine: addDays(monday, delta * 7) }, { replace: true });
+  const goWeek = (delta: number) => setParams({ semaine: addDays(weekFrom, delta * 7) }, { replace: true });
 
   function onDragStart(e: DragStartEvent) {
     setDragging((e.active.data.current as { item: MealPlanItem }).item);
@@ -183,8 +184,8 @@ export function PlanningPage() {
   }
 
   const planned = (plan.data ?? []).length;
-  const weekLabel = `${formatDayMonth(monday)} – ${formatDayMonth(sunday)}`;
-  const isCurrent = monday === weekStart(today);
+  const weekLabel = `${formatDayMonth(weekFrom)} – ${formatDayMonth(weekTo)}`;
+  const isCurrent = weekFrom === weekStart(today, firstDay);
 
   return (
     <>
@@ -193,7 +194,7 @@ export function PlanningPage() {
         subtitle={`${weekLabel} · ${planned} repas`}
         actions={
           <>
-            <Link to={`/planning/imprimer?semaine=${monday}`} className="icon-btn" aria-label="Imprimer la semaine">
+            <Link to={`/planning/imprimer?semaine=${weekFrom}`} className="icon-btn" aria-label="Imprimer la semaine">
               <Printer className="size-5" />
             </Link>
             <Link to="/courses" className="icon-btn" aria-label="Liste de courses">
@@ -221,7 +222,7 @@ export function PlanningPage() {
         ) : (
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
             <div className="space-y-3">
-              {weekDays(monday).map((d) => {
+              {weekDays(weekFrom).map((d) => {
                 const rel = relativeDayLabel(d, today);
                 return (
                   <section key={d} id={`day-${d}`} className={`card scroll-mt-20 overflow-hidden p-2 ${d === today ? "border-brand/50 ring-1 ring-brand/30" : ""} ${d < today ? "opacity-75" : ""}`}>

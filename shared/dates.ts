@@ -28,14 +28,18 @@ export function addDays(iso: string, n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Lundi de la semaine contenant `iso`. */
-export function weekStart(iso: string): string {
-  const day = new Date(`${iso}T00:00:00Z`).getUTCDay(); // 0 = dimanche
-  return addDays(iso, day === 0 ? -6 : 1 - day);
+/** Jours de la semaine, dans la numérotation de getUTCDay (0 = dimanche). */
+export const WEEKDAY_LABEL = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+export const DEFAULT_WEEK_START = 1;
+
+/** Premier jour de la semaine contenant `iso` ; `firstDay` : 0 = dimanche, 1 = lundi … 6 = samedi. */
+export function weekStart(iso: string, firstDay = DEFAULT_WEEK_START): string {
+  const day = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return addDays(iso, -((day - firstDay + 7) % 7));
 }
 
-export function weekDays(monday: string): string[] {
-  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+export function weekDays(start: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
 }
 
 const dayFmt = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });

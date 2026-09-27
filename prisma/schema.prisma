@@ -36,6 +36,8 @@ model Household {
   name          String            @default("Mon foyer")
   /// Repas affichés dans le planning (tableau JSON) : breakfast | lunch | snack | dinner
   mealSlots     String            @default("[\"lunch\",\"dinner\"]")
+  /// Premier jour de la semaine du planning : 0 = dimanche, 1 = lundi … 6 = samedi
+  weekStartDay  Int               @default(1)
   createdAt     DateTime          @default(now())
   mealPlan      MealPlanItem[]
   shoppingLists ShoppingList[]

@@ -10,7 +10,7 @@ import { formatCents } from "@/lib/format";
 import { usePlan } from "@/lib/planQueries";
 import { usePurchases } from "@/lib/purchaseQueries";
 import { totalStockValue } from "./Stock";
-import { useMe, useProducts, useRecipes } from "@/lib/queries";
+import { useMe, useProducts, useRecipes, useWeekStartDay } from "@/lib/queries";
 import { toBuyCount, useShopping } from "@/lib/shoppingQueries";
 import type { RecipeSummary } from "@/lib/types";
 import { QuickRecipeSheet } from "./Recipes";
@@ -56,8 +56,8 @@ export function HomePage() {
   const shopping = useShopping();
   const slots = useMealSlots();
   const today = todayIso();
-  const monday = weekStart(today);
-  const plan = usePlan(monday, addDays(monday, 6));
+  const weekFrom = weekStart(today, useWeekStartDay());
+  const plan = usePlan(weekFrom, addDays(weekFrom, 6));
   // Le prochain repas peut tomber la semaine suivante (dimanche soir → lundi midi).
   const next = nextMeal(today, slots);
   const nextPlan = usePlan(next.date, next.date);
@@ -84,7 +84,7 @@ export function HomePage() {
   const spent30 = priced.length ? priced.reduce((s, p) => s + p.totalCents!, 0) : null;
 
   const nextItems = (nextPlan.data ?? []).filter((i) => i.meal === next.meal).sort((a, b) => a.position - b.position);
-  const week = weekDays(monday);
+  const week = weekDays(weekFrom);
   const planned = (plan.data ?? []).filter((i) => slots.includes(i.meal));
   const favorites = (recipes.data ?? []).filter((r) => r.favorite).slice(0, 12);
   const recent = [...(recipes.data ?? [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 12);

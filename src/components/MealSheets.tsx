@@ -8,7 +8,7 @@ import { formatQty } from "@/lib/format";
 import { useCookable } from "@/lib/cookable";
 import { clientId, useAddMeal, useCookMeal, usePlan, useRemoveMeal, useUpdateMeal } from "@/lib/planQueries";
 import { suggestRecipes } from "@/lib/suggestions";
-import { useMe, useProducts, useRecipe, useRecipes } from "@/lib/queries";
+import { useMe, useProducts, useRecipe, useRecipes, useWeekStartDay } from "@/lib/queries";
 import type { MealPlanItem, RecipeSummary } from "@/lib/types";
 import { NumberInput, Sheet, Spinner, Thumb } from "./ui";
 
@@ -22,10 +22,11 @@ export function useMealSlots(): Meal[] {
 
 export type Slot = { date: string; meal: Meal };
 
-export function SlotPicker({ value, onChange, fromMonday }: { value: Slot; onChange: (s: Slot) => void; fromMonday?: string }) {
+export function SlotPicker({ value, onChange, fromWeekStart }: { value: Slot; onChange: (s: Slot) => void; fromWeekStart?: string }) {
   const meals = useMealSlots();
+  const firstDay = useWeekStartDay();
   const today = todayIso();
-  const start = fromMonday ?? weekStart(today);
+  const start = fromWeekStart ?? weekStart(today, firstDay);
   const days = [...weekDays(start), ...weekDays(addDays(start, 7))];
   const row = useRef<HTMLDivElement>(null);
   // Montre le jour sélectionné à l'ouverture (il peut être hors de l'écran).
@@ -263,6 +264,7 @@ function MealMenu({ item, setMode, onClose }: { item: MealPlanItem; setMode: (m:
 }
 
 function MoveForm({ item, copy, onDone }: { item: MealPlanItem; copy: boolean; onDone: () => void }) {
+  const firstDay = useWeekStartDay();
   const [slot, setSlot] = useState<Slot>({ date: item.date, meal: item.meal });
   const update = useUpdateMeal();
   const add = useAddMeal();
@@ -270,7 +272,7 @@ function MoveForm({ item, copy, onDone }: { item: MealPlanItem; copy: boolean; o
   return (
     <div>
       <p className="mb-3 text-sm text-ink-2">{copy ? "Ajouter aussi ce repas à :" : "Nouveau créneau :"}</p>
-      <SlotPicker value={slot} onChange={setSlot} fromMonday={weekStart(item.date < todayIso() ? todayIso() : item.date)} />
+      <SlotPicker value={slot} onChange={setSlot} fromWeekStart={weekStart(item.date < todayIso() ? todayIso() : item.date, firstDay)} />
       <button
         className="btn-primary mt-4 w-full"
         disabled={!copy && same}

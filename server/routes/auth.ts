@@ -86,13 +86,14 @@ authRoutes.get("/me", requireAuth, async (c) => {
         id: true,
         name: true,
         mealSlots: true,
+        weekStartDay: true,
         members: { select: { role: true, user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: "asc" } },
       },
     }),
   ]);
   return c.json({
     user,
-    household: { id: household.id, name: household.name, mealSlots: parseMealSlots(household.mealSlots), members: household.members.map((m) => ({ ...m.user, role: m.role })) },
+    household: { id: household.id, name: household.name, mealSlots: parseMealSlots(household.mealSlots), weekStartDay: household.weekStartDay, members: household.members.map((m) => ({ ...m.user, role: m.role })) },
   });
 });
 
@@ -110,12 +111,13 @@ export const householdRoutes = new Hono<{ Variables: AuthVars }>();
 householdRoutes.use(requireAuth);
 
 householdRoutes.patch("/", async (c) => {
-  const body = await parseJson(c.req, z.object({ name: optText(80).optional(), mealSlots: z.array(z.enum(MEALS)).min(1).optional() }));
+  const body = await parseJson(c.req, z.object({ name: optText(80).optional(), mealSlots: z.array(z.enum(MEALS)).min(1).optional(), weekStartDay: z.number().int().min(0).max(6).optional() }));
   await prisma.household.update({
     where: { id: c.var.householdId },
     data: {
       ...(body.name !== undefined ? { name: body.name ?? "Mon foyer" } : {}),
       ...(body.mealSlots ? { mealSlots: JSON.stringify(MEALS.filter((m) => body.mealSlots!.includes(m))) } : {}),
+      ...(body.weekStartDay !== undefined ? { weekStartDay: body.weekStartDay } : {}),
     },
   });
   return c.json({ ok: true });

@@ -7,7 +7,7 @@ import { EmptyState, PageHeader, PageLoader, Thumb } from "@/components/ui";
 import { formatQty } from "@/lib/format";
 import { usePlan } from "@/lib/planQueries";
 import { usePurchases } from "@/lib/purchaseQueries";
-import { useRecipes } from "@/lib/queries";
+import { useRecipes, useWeekStartDay } from "@/lib/queries";
 
 const WEEKS = 12;
 const dm = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -16,7 +16,7 @@ const count = (n: number) => String(Math.round(n));
 
 export function StatsPage() {
   const today = todayIso();
-  const first = addDays(weekStart(today), -(WEEKS - 1) * 7);
+  const first = addDays(weekStart(today, useWeekStartDay()), -(WEEKS - 1) * 7);
   const plan = usePlan(first, today);
   const purchases = usePurchases(first, today);
   const recipes = useRecipes();

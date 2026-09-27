@@ -4,7 +4,7 @@ import { ChevronRight, Copy, FolderTree, KeyRound, LogOut, MapPin, Plus, Share2,
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
-import { MEAL_LABEL, MEALS } from "../../shared/dates";
+import { DEFAULT_WEEK_START, MEAL_LABEL, MEALS, WEEKDAY_LABEL } from "../../shared/dates";
 import { Field, PageHeader, PageLoader, Sheet, useConfirm } from "@/components/ui";
 import { api } from "@/lib/api";
 import { keys, useCategories, useDeleteCategory, useDeleteLocation, useInvites, useLocations, useMe, useSaveCategory, useSaveLocation } from "@/lib/queries";
@@ -180,6 +180,31 @@ export function SettingsPage() {
               );
             })}
           </div>
+        </section>
+
+        <section>
+          <h2 className="mb-2 px-1 text-sm font-bold tracking-wide text-ink-2 uppercase">Début de la semaine</h2>
+          <select
+            className="input"
+            value={household.weekStartDay ?? DEFAULT_WEEK_START}
+            aria-label="Premier jour de la semaine"
+            onChange={async (e) => {
+              try {
+                await api.patch("/household", { weekStartDay: Number(e.target.value) });
+                await qc.invalidateQueries({ queryKey: keys.me });
+              } catch (err) {
+                toast.error((err as Error).message);
+              }
+            }}
+          >
+            {/* Lundi en tête, dimanche en dernier. */}
+            {[1, 2, 3, 4, 5, 6, 0].map((d) => (
+              <option key={d} value={d}>
+                {WEEKDAY_LABEL[d]} → {WEEKDAY_LABEL[(d + 6) % 7].toLowerCase()}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 px-1 text-xs text-ink-3">Utilisé par le planning, l'impression, les courses « semaine prochaine » et les statistiques.</p>
         </section>
 
         <section className="card divide-y divide-line overflow-hidden">

@@ -5,7 +5,7 @@ export type { StockStatus };
 export type Member = { id: string; name: string | null; email: string; role: string };
 export type Me = {
   user: { id: string; email: string; name: string | null };
-  household: { id: string; name: string; mealSlots: MealPlanItem["meal"][]; members: Member[] };
+  household: { id: string; name: string; mealSlots: MealPlanItem["meal"][]; weekStartDay?: number; members: Member[] };
 };
 
 export type CategoryKind = "recipe" | "product";

@@ -7,7 +7,7 @@ import { PageLoader } from "@/components/ui";
 import { formatQty } from "@/lib/format";
 import { usePlan } from "@/lib/planQueries";
 import { buildPrintPlan, type Marker } from "@/lib/printPlan";
-import { useMe, useRecipes } from "@/lib/queries";
+import { useMe, useRecipes, useWeekStartDay } from "@/lib/queries";
 
 /** Repère d'un ingrédient partagé : forme colorée + numéro (lisible aussi en noir et blanc). */
 function MarkerBadge({ marker, size = 11 }: { marker: Marker; size?: number }) {
@@ -39,9 +39,9 @@ const yearOf = (date: string) => date.slice(0, 4);
 export function PlanningPrintPage() {
   const [params, setParams] = useSearchParams();
   const requested = params.get("semaine");
-  const monday = weekStart(requested && isIsoDate(requested) ? requested : todayIso());
-  const sunday = addDays(monday, 6);
-  const plan = usePlan(monday, sunday);
+  const weekFrom = weekStart(requested && isIsoDate(requested) ? requested : todayIso(), useWeekStartDay());
+  const weekTo = addDays(weekFrom, 6);
+  const plan = usePlan(weekFrom, weekTo);
   const recipes = useRecipes();
   const me = useMe();
   const slots = useMealSlots();
@@ -51,8 +51,8 @@ export function PlanningPrintPage() {
   const data = useMemo(() => buildPrintPlan(plan.data ?? [], new Map((recipes.data ?? []).map((r) => [r.id, r]))), [plan.data, recipes.data]);
   // Repas masqués dans les réglages mais présents cette semaine : on les imprime quand même.
   const meals: Meal[] = MEALS.filter((m) => slots.includes(m) || (plan.data ?? []).some((i) => i.meal === m));
-  const days = weekDays(monday);
-  const goWeek = (n: number) => setParams({ semaine: addDays(monday, n * 7) }, { replace: true });
+  const days = weekDays(weekFrom);
+  const goWeek = (n: number) => setParams({ semaine: addDays(weekFrom, n * 7) }, { replace: true });
 
   if (plan.isPending || recipes.isPending) return <PageLoader />;
 
@@ -62,7 +62,7 @@ export function PlanningPrintPage() {
       <style>{"@page { size: A4 landscape; margin: 8mm; } @media print { html, body { background: #fff !important; } }"}</style>
 
       <div className="pt-safe sticky top-0 z-10 flex flex-wrap items-center gap-2 bg-[#e7e3dc]/95 px-3 py-2 backdrop-blur print:hidden">
-        <Link to={`/planning?semaine=${monday}`} className="icon-btn text-[#1f1c18]" aria-label="Retour au planning">
+        <Link to={`/planning?semaine=${weekFrom}`} className="icon-btn text-[#1f1c18]" aria-label="Retour au planning">
           <ChevronLeft className="size-6" />
         </Link>
         <div className="flex items-center rounded-xl bg-white/70">
@@ -70,7 +70,7 @@ export function PlanningPrintPage() {
             <ChevronLeft className="size-5" />
           </button>
           <span className="px-1 text-sm font-semibold">
-            {range(monday)} – {range(sunday)}
+            {range(weekFrom)} – {range(weekTo)}
           </span>
           <button className="icon-btn size-10 text-[#1f1c18]" onClick={() => goWeek(1)} aria-label="Semaine suivante">
             <ChevronRight className="size-5" />
@@ -91,7 +91,7 @@ export function PlanningPrintPage() {
         <article className="mx-auto w-[277mm] bg-white p-[6mm] shadow-lg [print-color-adjust:exact] [-webkit-print-color-adjust:exact] print:w-auto print:p-0 print:shadow-none">
           <header className="mb-3 flex items-end justify-between border-b-2 border-[#1f1c18] pb-1.5">
             <h1 className="text-[18pt] leading-none font-bold">
-              Menu de la semaine · {range(monday)} – {range(sunday)} {yearOf(sunday)}
+              Menu de la semaine · {range(weekFrom)} – {range(weekTo)} {yearOf(weekTo)}
             </h1>
             <p className="text-[9pt] text-[#6b645a]">{me.data?.household.name}</p>
           </header>

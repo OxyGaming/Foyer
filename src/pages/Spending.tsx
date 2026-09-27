@@ -6,7 +6,7 @@ import { BarList, type BarItem, type Column, ColumnChart } from "@/components/ch
 import { Chips, EmptyState, PageHeader, PageLoader, Thumb } from "@/components/ui";
 import { formatCents, formatDate, formatQty, formatUnitPrice } from "@/lib/format";
 import { usePurchases } from "@/lib/purchaseQueries";
-import { useCategories } from "@/lib/queries";
+import { useCategories, useWeekStartDay } from "@/lib/queries";
 
 type Period = "30d" | "6m" | "12m";
 const PERIODS: { value: Period; label: string }[] = [
@@ -22,10 +22,10 @@ const dm = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "short", ti
 /** Jour local d'un achat (la date est enregistrée à midi, heure locale). */
 const localDay = (iso: string) => todayIso(new Date(iso));
 
-function buckets(period: Period, today: string): { from: string; cols: { key: string; label: string; tooltip: string; start: string; end: string }[] } {
+function buckets(period: Period, today: string, firstDay: number): { from: string; cols: { key: string; label: string; tooltip: string; start: string; end: string }[] } {
   if (period === "30d") {
     // 5 semaines calendaires, la dernière étant la semaine en cours.
-    const first = addDays(weekStart(today), -28);
+    const first = addDays(weekStart(today, firstDay), -28);
     const cols = Array.from({ length: 5 }, (_, i) => {
       const start = addDays(first, i * 7);
       const end = addDays(start, 6);
@@ -47,7 +47,8 @@ function buckets(period: Period, today: string): { from: string; cols: { key: st
 export function SpendingPage() {
   const [period, setPeriod] = useState<Period>("30d");
   const today = todayIso();
-  const { from, cols } = useMemo(() => buckets(period, today), [period, today]);
+  const firstDay = useWeekStartDay();
+  const { from, cols } = useMemo(() => buckets(period, today, firstDay), [period, today, firstDay]);
   const purchases = usePurchases(from, today);
   const categories = useCategories();
 

@@ -9,7 +9,7 @@ import { formatQty, parseNum } from "@/lib/format";
 import { parseIngredientLine } from "@/lib/ingredients";
 import { clientId } from "@/lib/planQueries";
 import { useStores } from "@/lib/purchaseQueries";
-import { useCategories, useLocations, useProducts } from "@/lib/queries";
+import { useCategories, useLocations, useProducts, useWeekStartDay } from "@/lib/queries";
 import {
   isCovered,
   itemQty,
@@ -28,12 +28,12 @@ import type { Category, Product, ShoppingItem } from "@/lib/types";
 
 type Range = { from: string; to: string };
 
-function presets(today: string): { key: string; label: string; range: Range }[] {
-  const monday = weekStart(today);
+function presets(today: string, firstDay: number): { key: string; label: string; range: Range }[] {
+  const weekFrom = weekStart(today, firstDay);
   return [
     { key: "7d", label: "7 prochains jours", range: { from: today, to: addDays(today, 6) } },
-    { key: "week", label: "Fin de semaine", range: { from: today, to: addDays(monday, 6) } },
-    { key: "next", label: "Semaine prochaine", range: { from: addDays(monday, 7), to: addDays(monday, 13) } },
+    { key: "week", label: "Fin de semaine", range: { from: today, to: addDays(weekFrom, 6) } },
+    { key: "next", label: "Semaine prochaine", range: { from: addDays(weekFrom, 7), to: addDays(weekFrom, 13) } },
     { key: "14d", label: "14 jours", range: { from: today, to: addDays(today, 13) } },
   ];
 }
@@ -267,6 +267,7 @@ export function ShoppingPage() {
   const pendingOffline = useIsMutating({ mutationKey: ["shopping"] });
   const { ask, dialog } = useConfirm();
   const today = todayIso();
+  const firstDay = useWeekStartDay();
   const [text, setText] = useState("");
   const [editing, setEditing] = useState<ShoppingItem | null>(null);
   const [showCovered, setShowCovered] = useState(false);
@@ -312,7 +313,7 @@ export function ShoppingPage() {
   }
 
   const syncTo = (r: Range) => sync.mutate(r);
-  const activePreset = presets(today).find((p) => p.range.from === range.from && p.range.to === range.to)?.key;
+  const activePreset = presets(today, firstDay).find((p) => p.range.from === range.from && p.range.to === range.to)?.key;
 
   return (
     <>
@@ -339,7 +340,7 @@ export function ShoppingPage() {
             Recettes du planning du <b className="text-ink">{formatDayMonth(range.from)}</b> au <b className="text-ink">{formatDayMonth(range.to)}</b>, stock déduit.
           </p>
           <div className="no-scrollbar -mx-3 flex gap-2 overflow-x-auto px-3">
-            {presets(today).map((p) => (
+            {presets(today, firstDay).map((p) => (
               <button key={p.key} className={`chip min-h-8 text-xs ${activePreset === p.key ? "chip-on" : ""}`} onClick={() => syncTo(p.range)} disabled={!online || sync.isPending}>
                 {p.label}
               </button>
