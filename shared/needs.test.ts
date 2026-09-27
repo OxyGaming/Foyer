@@ -86,6 +86,37 @@ describe("computeNeeds", () => {
     expect(none[0]).toMatchObject({ toBuy: 250, covered: false });
   });
 
+  it("rangé sans quantité indiquée : on fait confiance, rien à acheter", () => {
+    const r: NeedsRecipe = {
+      id: "r",
+      name: "R",
+      servings: null,
+      ingredients: [
+        { name: "Farine", productId: "farine", quantity: 100, unit: "g" },
+        { name: "Huile", productId: "huile", quantity: 2, unit: "c. à soupe" },
+        { name: "Sel", productId: "sel", quantity: 1, unit: "pincée" },
+      ],
+    };
+    const meals = [{ recipeId: "r", servings: null, cooked: false }];
+    const needs = computeNeeds(
+      meals,
+      recipes([r]),
+      products([
+        { id: "farine", name: "Farine", unit: "g", quantity: null, hasStockLine: true },
+        { id: "huile", name: "Huile", unit: "bouteille", quantity: null, hasStockLine: true },
+        { id: "sel", name: "Sel", unit: null, quantity: null, hasStockLine: true },
+      ]),
+    );
+    expect(needs.map((n) => [n.name, n.toBuy, n.covered])).toEqual([
+      ["Farine", 0, true],
+      ["Huile", 0, true],
+      ["Sel", 0, true],
+    ]);
+    // Jamais rangé : on achète.
+    const none = computeNeeds(meals, recipes([r]), products([{ id: "farine", name: "Farine", unit: "g", quantity: null }]));
+    expect(none[0]).toMatchObject({ toBuy: 100, covered: false });
+  });
+
   it("1 pincée de sel avec 1 kg en stock : rien à acheter", () => {
     const r: NeedsRecipe = { id: "r", name: "R", servings: null, ingredients: [{ name: "Sel", productId: "sel", quantity: 1, unit: "pincée" }] };
     const meals = [{ recipeId: "r", servings: null, cooked: false }];

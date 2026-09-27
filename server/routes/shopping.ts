@@ -44,7 +44,7 @@ async function productsWithStock(householdId: string) {
     where: { householdId },
     select: { id: true, name: true, unit: true, minStock: true, targetStock: true, defaultLocationId: true, stockItems: { select: { quantity: true } } },
   });
-  return products.map((p) => ({ ...p, quantity: totalQuantity(p.stockItems) }));
+  return products.map((p) => ({ ...p, quantity: totalQuantity(p.stockItems), hasStockLine: p.stockItems.length > 0 }));
 }
 
 async function nextPosition(listId: string) {

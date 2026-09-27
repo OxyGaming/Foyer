@@ -3,7 +3,8 @@ import { compatibleUnits, convertQty, isBasicUnit, roundForPurchase, unitDimensi
 
 export type NeedsIngredient = { name: string; productId: string | null; quantity: number | null; unit: string | null };
 export type NeedsRecipe = { id: string; name: string; servings: number | null; ingredients: NeedsIngredient[] };
-export type NeedsProduct = { id: string; name: string; unit: string | null; quantity: number | null };
+/** `hasStockLine` : rangé quelque part, même sans quantité (« de la farine au placard »). */
+export type NeedsProduct = { id: string; name: string; unit: string | null; quantity: number | null; hasStockLine?: boolean };
 export type NeedsMeal = { recipeId: string | null; servings: number | null; cooked: boolean };
 
 export type Need = {
@@ -64,14 +65,16 @@ export function computeNeeds(meals: NeedsMeal[], recipes: Map<string, NeedsRecip
   for (const [key, a] of acc) {
     const product = products.get(a.productId)!;
     const stock = product.quantity != null ? convertQty(product.quantity, product.unit, a.unit) : null;
-    const inStock = product.quantity != null && product.quantity > 0;
+    // En stock : il en reste, ou il est rangé sans quantité indiquée (on fait
+    // confiance, comme « Que puis-je cuisiner »).
+    const inStock = product.quantity != null ? product.quantity > 0 : !!product.hasStockLine;
     let toBuy: number | null;
     if (a.sum != null && stock != null) {
       const raw = Math.max(0, a.sum - stock);
       toBuy = raw > 1e-9 ? roundForPurchase(raw, a.unit) : 0;
     } else if (inStock) {
-      // Sans quantité, ou stock dans une unité incomparable (« 2 c. à soupe »
-      // d'une bouteille) : couvert s'il en reste un peu.
+      // Sans quantité, stock sans quantité, ou stock dans une unité
+      // incomparable (« 2 c. à soupe » d'une bouteille) : couvert.
       toBuy = 0;
     } else {
       toBuy = a.sum != null ? roundForPurchase(a.sum, a.unit) : null;
