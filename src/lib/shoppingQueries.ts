@@ -149,7 +149,8 @@ export function useClearChecked() {
   });
 }
 
-export type StockInEntry = { itemId: string; addToStock: boolean; quantity: number | null; locationId: string | null; totalCents: number | null };
+/** `unit` : unité de `quantity` telle qu'achetée (« 5 kg »), convertie par le serveur dans celle du produit. */
+export type StockInEntry = { itemId: string; addToStock: boolean; quantity: number | null; unit?: string | null; locationId: string | null; totalCents: number | null };
 
 export function useStockIn() {
   const qc = useQueryClient();

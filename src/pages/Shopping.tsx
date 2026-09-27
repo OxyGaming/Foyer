@@ -2,7 +2,7 @@ import { useIsMutating } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronDown, PackageCheck, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { addDays, formatDayMonth, todayIso, weekStart } from "../../shared/dates";
-import { compatibleUnits, convertQty } from "../../shared/units";
+import { canonicalUnit, compatibleUnits, convertQty, purchaseUnitChoices, readableQty } from "../../shared/units";
 import { useOnline } from "@/components/Layout";
 import { EmptyState, NumberInput, PageHeader, PageLoader, Sheet, Spinner, Thumb, useConfirm } from "@/components/ui";
 import { formatQty, parseNum } from "@/lib/format";
@@ -172,7 +172,11 @@ function StockInSheet({ open, items, products, onClose }: { open: boolean; items
   );
 }
 
-type StockRow = { on: boolean; qty: number | null; locationId: string; price: string };
+/** `unit` : unité de la quantité saisie (« 5 kg » pour un produit compté en g). */
+type StockRow = { on: boolean; qty: number | null; unit: string; locationId: string; price: string };
+
+/** Le stock du produit a-t-il déjà une quantité ? Alors son unité est fixée. */
+const hasCountedStock = (p?: Product) => !!p?.stock.some((l) => l.quantity != null);
 
 function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; products: Map<string, Product>; onDone: () => void }) {
   const locations = useLocations();
@@ -185,9 +189,17 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
     for (const i of items) {
       const p = i.productId ? products.get(i.productId) : undefined;
       const q = itemQty(i);
-      // Quantité convertie dans l'unité du stock quand c'est possible (500 ml → 0,5 L).
-      const qty = q != null && p?.unit && compatibleUnits(i.unit, p.unit) ? convertQty(q, i.unit, p.unit) : q;
-      init[i.id] = { on: true, qty: qty ? Math.round(qty * 1000) / 1000 : null, locationId: p?.defaultLocationId ?? "", price: "" };
+      const unit = p && compatibleUnits(i.unit, p.unit) ? p.unit : i.unit;
+      // Quantité dans l'unité du stock (500 ml → 0,5 L), puis la plus lisible (1500 g → 1,5 kg).
+      const inUnit = q != null ? convertQty(q, i.unit, unit) : null;
+      const shown = inUnit ? readableQty(inUnit, unit) : { quantity: null, unit };
+      init[i.id] = {
+        on: true,
+        qty: shown.quantity ? Math.round(shown.quantity * 1000) / 1000 : null,
+        unit: canonicalUnit(shown.unit) ?? "pièce",
+        locationId: p?.defaultLocationId ?? "",
+        price: "",
+      };
     }
     return init;
   });
@@ -199,7 +211,7 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
     const entries: StockInEntry[] = items.map((i) => {
       const r = rows[i.id];
       const price = r ? parseNum(r.price) : null;
-      return { itemId: i.id, addToStock: !!r?.on, quantity: r?.qty ?? null, locationId: r?.locationId || null, totalCents: price != null ? Math.round(price * 100) : null };
+      return { itemId: i.id, addToStock: !!r?.on, quantity: r?.qty ?? null, unit: r?.unit ?? null, locationId: r?.locationId || null, totalCents: price != null ? Math.round(price * 100) : null };
     });
     stockIn.mutate({ entries, storeName: store.trim() || null }, { onSuccess: onDone });
   }
@@ -223,10 +235,31 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
                 {!p && <span className="text-xs text-ink-3">nouveau produit</span>}
               </label>
               {r.on && (
-                <div className="mt-2 grid grid-cols-[5.5rem_1fr_5.5rem] gap-2">
-                  <div className="relative">
-                    <NumberInput value={r.qty} onChange={(v) => set({ qty: v })} placeholder="Qté" className="input px-2.5 py-2 pr-8" />
-                    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">{p?.unit ?? i.unit ?? ""}</span>
+                <div className="mt-2 space-y-2">
+                  {i.neededQty != null && <p className="text-xs text-ink-3">Planning : {formatQty(i.neededQty, i.unit)} — indiquez ce que vous avez vraiment acheté.</p>}
+                  <div className="grid grid-cols-[1fr_6rem_5.5rem] gap-2">
+                    <NumberInput value={r.qty} onChange={(v) => set({ qty: v })} placeholder="Quantité" className="input px-2.5 py-2" />
+                    <select
+                      className="input px-2 py-2 text-sm"
+                      value={r.unit}
+                      onChange={(e) => {
+                        // 500 g → 0,5 kg : la quantité suit le changement d'unité quand c'est convertible.
+                        const next = e.target.value;
+                        const q = r.qty != null ? convertQty(r.qty, r.unit, next) : null;
+                        set({ unit: next, qty: q != null ? Math.round(q * 1000) / 1000 : r.qty });
+                      }}
+                      aria-label="Unité achetée"
+                    >
+                      {[...new Set([r.unit, ...purchaseUnitChoices(p?.unit ?? i.unit, hasCountedStock(p))])].map((u) => (
+                        <option key={u} value={u}>
+                          {u}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="relative">
+                      <input className="input px-2.5 py-2 pr-6" inputMode="decimal" placeholder="Prix" value={r.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9.,]/g, "") })} aria-label="Prix total" />
+                      <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">€</span>
+                    </div>
                   </div>
                   <select className="input px-2 py-2 text-sm" value={r.locationId} onChange={(e) => set({ locationId: e.target.value })} aria-label="Emplacement">
                     <option value="">Sans emplacement</option>
@@ -237,10 +270,6 @@ function StockInForm({ items, products, onDone }: { items: ShoppingItem[]; produ
                       </option>
                     ))}
                   </select>
-                  <div className="relative">
-                    <input className="input px-2.5 py-2 pr-6" inputMode="decimal" placeholder="Prix" value={r.price} onChange={(e) => set({ price: e.target.value.replace(/[^0-9.,]/g, "") })} aria-label="Prix total" />
-                    <span className="pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-xs text-ink-3">€</span>
-                  </div>
                 </div>
               )}
             </li>

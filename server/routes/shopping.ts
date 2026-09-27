@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { isIsoDate } from "../../shared/dates";
 import { computeNeeds, type NeedsProduct, type NeedsRecipe } from "../../shared/needs";
-import { quantityToBuy, stockStatus, totalQuantity } from "../../shared/stock";
+import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
 import { normalize } from "../../shared/text";
 import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
@@ -250,6 +250,8 @@ shoppingRoutes.post("/stock-in", async (c) => {
             itemId: z.string().max(64),
             addToStock: z.boolean(),
             quantity: optNumber,
+            /** Unité de `quantity` si elle diffère de l'article (« 5 kg » au lieu de « 500 g »). */
+            unit: optUnit().optional(),
             locationId: optId,
             totalCents: z.number().int().min(0).max(10_000_000).nullish(),
           }),
@@ -270,20 +272,29 @@ shoppingRoutes.post("/stock-in", async (c) => {
       if (e.addToStock) {
         let product = item.productId ? await tx.product.findFirst({ where: { id: item.productId, householdId } }) : null;
         // Article libre (« Papier toilette ») : on crée le produit à cette occasion.
-        if (!product && item.name) product = await tx.product.create({ data: { householdId, name: item.name, unit: item.unit } });
+        // Unité réellement achetée (« 5 kg » pour une recette qui demandait 500 g).
+        const bought = e.unit !== undefined ? e.unit : item.unit;
+        if (!product && item.name) product = await tx.product.create({ data: { householdId, name: item.name, unit: bought } });
         if (product) {
           const locationId = e.locationId && locations.has(e.locationId) ? e.locationId : await defaultStockLocation(tx, product);
-          // Produit sans unité ni stock chiffré : il adopte l'unité de l'article acheté.
           let unit = product.unit;
-          if (!product.unit && item.unit && (await tx.stockItem.count({ where: { productId: product.id, quantity: { not: null } } })) === 0) {
-            await tx.product.update({ where: { id: product.id }, data: { unit: item.unit } });
-            unit = item.unit;
+          let quantity = e.quantity;
+          if (compatibleUnits(bought, product.unit)) {
+            // Convertie dans l'unité du produit : 5 kg → 5000 g.
+            if (quantity != null) quantity = roundQty(convertQty(quantity, bought, product.unit)!);
+          } else if ((await tx.stockItem.count({ where: { productId: product.id, quantity: { not: null } } })) === 0) {
+            // Pas encore de stock chiffré : le produit adopte l'unité de l'achat
+            // (celle supposée par une recette n'était qu'une indication).
+            await tx.product.update({ where: { id: product.id }, data: { unit: bought } });
+            unit = bought;
+          } else if (quantity != null) {
+            throw new HttpError(400, `« ${product.name} » est compté en ${product.unit ?? "pièces"} : impossible d'y ajouter des ${bought ?? "pièces"}. Choisissez l'unité du produit.`);
           }
           const purchase = await tx.purchase.create({
-            data: { householdId, productId: product.id, quantity: e.quantity, unit, totalCents: e.totalCents ?? null, storeId, userId: c.var.userId },
+            data: { householdId, productId: product.id, quantity, unit, totalCents: e.totalCents ?? null, storeId, userId: c.var.userId },
           });
-          if (e.quantity != null && e.quantity > 0) {
-            await addToStock(tx, { householdId, productId: product.id, locationId, delta: e.quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note: body.storeName ? `Courses · ${body.storeName}` : "Courses" });
+          if (quantity != null && quantity > 0) {
+            await addToStock(tx, { householdId, productId: product.id, locationId, delta: quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note: body.storeName ? `Courses · ${body.storeName}` : "Courses" });
           } else {
             // Quantité inconnue : le produit est « présent » à cet emplacement.
             const line = await tx.stockItem.findFirst({ where: { productId: product.id, locationId } });

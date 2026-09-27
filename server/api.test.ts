@@ -278,6 +278,23 @@ describe("planning et courses (phase 2)", () => {
     expect(await prisma.purchase.count({ where: { productId: product.id, totalCents: 598 } })).toBe(1);
   });
 
+  it("range la quantité réellement achetée, dans son unité (500 g prévus, 5 kg achetés)", async () => {
+    const pdt = (await c.call("POST", "/products", { name: "Pommes de terre", quantity: 200, unit: "g" })).body;
+    await c.call("POST", "/shopping/items", { name: "Pommes de terre", productId: pdt.id, quantity: 500, unit: "g" });
+    const item = line((await c.call("GET", "/shopping")).body.items, "Pommes de terre");
+    await c.call("POST", "/shopping/stock-in", { entries: [{ itemId: item.id, addToStock: true, quantity: 5, unit: "kilo", totalCents: 450 }] });
+    const after = (await c.call("GET", `/products/${pdt.id}`)).body;
+    expect(after).toMatchObject({ unit: "g", quantity: 5200 });
+    expect(after.purchases[0]).toMatchObject({ quantity: 5000, unit: "g", totalCents: 450 });
+
+    // Unité incomparable avec un stock déjà chiffré : refus clair, la liste n'est pas vidée.
+    await c.call("POST", "/shopping/items", { name: "Pommes de terre", productId: pdt.id, quantity: 1 });
+    const again = line((await c.call("GET", "/shopping")).body.items, "Pommes de terre");
+    const refus = await c.call("POST", "/shopping/stock-in", { entries: [{ itemId: again.id, addToStock: true, quantity: 2, unit: "sachet" }] });
+    expect(refus.status).toBe(400);
+    expect(line((await c.call("GET", "/shopping")).body.items, "Pommes de terre")).toBeTruthy();
+  });
+
   it("déplace un repas vers un autre jour/repas et réordonne", async () => {
     const [first] = (await c.call("GET", "/plan?from=2026-10-05&to=2026-10-05")).body;
     const extra = (await c.call("POST", "/plan", { date: "2026-10-06", meal: "dinner", title: "Restes" })).body;

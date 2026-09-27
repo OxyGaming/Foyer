@@ -91,6 +91,21 @@ export function readableQty(qty: number, unit: string | null | undefined): { qua
   return { quantity: qty, unit: unit ?? null };
 }
 
+const FAMILY: Record<string, string[]> = { mass: ["g", "kg"], volume: ["ml", "cl", "L"], count: ["pièce"] };
+const PURCHASE_UNITS = ["pièce", "g", "kg", "ml", "cl", "L", "paquet", "boîte", "bouteille", "brique", "sachet", "pot", "barquette"];
+
+/**
+ * Unités proposées pour saisir un achat d'un produit compté en `unit`. Stock déjà
+ * chiffré (`locked`) : seulement celles convertibles (g ↔ kg) ; sinon un choix large,
+ * le produit adoptera l'unité de l'achat.
+ */
+export function purchaseUnitChoices(unit: string | null | undefined, locked: boolean): string[] {
+  const own = canonicalUnit(unit) ?? "pièce";
+  const family = FAMILY[unitDimension(own)];
+  if (locked) return family ?? [own];
+  return [...new Set([...(family ?? [own]), ...PURCHASE_UNITS])];
+}
+
 /** Arrondi d'affichage/achat : à l'unité supérieure pour les pièces, au centième sinon. */
 export function roundForPurchase(qty: number, unit: string | null | undefined): number {
   if (unitDimension(unit) === "count") return Math.ceil(qty - 1e-9);
