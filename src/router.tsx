@@ -13,6 +13,7 @@ import { StockPage } from "./pages/Stock";
 // met quand même tous les morceaux en cache, l'appli reste utilisable hors ligne.
 const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K) =>
   lazy(() => load().then((m) => ({ default: m[name] })));
+const BulkEditPage = page(() => import("./pages/BulkEdit"), "BulkEditPage");
 const CookablePage = page(() => import("./pages/Cookable"), "CookablePage");
 const DuplicatesPage = page(() => import("./pages/Duplicates"), "DuplicatesPage");
 const InventoryPage = page(() => import("./pages/Inventory"), "InventoryPage");
@@ -84,6 +85,15 @@ export const router = createBrowserRouter([
         element: (
           <Suspense fallback={<PageLoader />}>
             <PlanningPrintPage />
+          </Suspense>
+        ),
+      },
+      // Pleine largeur (vue tableur réservée au PC).
+      {
+        path: "/stock/tableur",
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <BulkEditPage />
           </Suspense>
         ),
       },

@@ -221,6 +221,59 @@ productRoutes.post("/:id/merge", async (c) => {
   return c.json(present(await loadProduct(householdId, target.id)));
 });
 
+const bulkInput = z.object({
+  updates: z
+    .array(z.object({ id: z.string().min(1).max(64), ...z.object(productFields).omit({ photoId: true }).partial().shape, quantity: optNumber.optional() }))
+    .max(5000)
+    .default([]),
+  deletes: z.array(z.string().min(1).max(64)).max(5000).default([]),
+});
+
+/**
+ * Édition en masse (vue tableur) : tout passe ou rien. La quantité ne se
+ * modifie que pour un produit rangé à un seul endroit (ou nulle part : elle va
+ * alors à son emplacement habituel). Renvoie la liste complète à jour.
+ */
+productRoutes.post("/bulk", async (c) => {
+  const householdId = c.var.householdId;
+  const { updates, deletes } = await parseJson(c.req, bulkInput);
+  const ids = [...new Set([...updates.map((u) => u.id), ...deletes])];
+  const existing = await prisma.product.findMany({
+    where: { householdId, id: { in: ids } },
+    select: { id: true, name: true, photoId: true, defaultLocationId: true, stockItems: { select: { locationId: true } } },
+  });
+  if (existing.length !== ids.length) notFound("Produit");
+  const byId = new Map(existing.map((p) => [p.id, p]));
+
+  const catIds = [...new Set(updates.map((u) => u.categoryId).filter((v): v is string => !!v))];
+  const locIds = [...new Set(updates.map((u) => u.defaultLocationId).filter((v): v is string => !!v))];
+  if ((await prisma.category.count({ where: { householdId, id: { in: catIds } } })) !== catIds.length) throw new HttpError(400, "Catégorie inconnue");
+  if ((await prisma.location.count({ where: { householdId, id: { in: locIds } } })) !== locIds.length) throw new HttpError(400, "Emplacement inconnu");
+  for (const u of updates) {
+    const p = byId.get(u.id)!;
+    if (u.quantity !== undefined && p.stockItems.length > 1) {
+      throw new HttpError(400, `« ${p.name || "Sans nom"} » est rangé à plusieurs endroits : modifiez sa quantité depuis sa fiche.`);
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const { id, quantity, ...fields } of updates) {
+      const p = byId.get(id)!;
+      if (Object.keys(fields).length) await tx.product.update({ where: { id }, data: fields });
+      if (quantity !== undefined) {
+        // Ligne existante (même « sans emplacement ») sinon emplacement habituel.
+        const locationId = p.stockItems.length ? p.stockItems[0].locationId : fields.defaultLocationId !== undefined ? fields.defaultLocationId : p.defaultLocationId;
+        await setStock(tx, { householdId, productId: id, locationId, quantity, type: "adjust", userId: c.var.userId, note: "Édition en masse" });
+      }
+    }
+    if (deletes.length) await tx.product.deleteMany({ where: { householdId, id: { in: deletes } } });
+  });
+  for (const id of deletes) await releasePhoto(byId.get(id)!.photoId);
+
+  const products = await prisma.product.findMany({ where: { householdId }, orderBy: { name: "asc" }, select: productSelect });
+  return c.json(products.map((p) => present(p)));
+});
+
 productRoutes.patch("/:id", async (c) => {
   const householdId = c.var.householdId;
   const existing = await loadProduct(householdId, c.req.param("id"));

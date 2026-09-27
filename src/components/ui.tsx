@@ -1,5 +1,5 @@
 import { ChevronLeft, Loader2, X } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type InputHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { STOCK_STATUS_LABEL, type StockStatus } from "../../shared/stock";
@@ -163,7 +163,15 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
  * Saisie numérique tolérante (virgule ou point, vide autorisé).
  * Garde le texte tapé tel quel pendant la frappe pour ne pas gêner « 2, » → « 2,5 ».
  */
-export function NumberInput({ value, onChange, id, placeholder, integer, className = "input" }: { value: number | null; onChange: (v: number | null) => void; id?: string; placeholder?: string; integer?: boolean; className?: string }) {
+export function NumberInput({
+  value,
+  onChange,
+  id,
+  placeholder,
+  integer,
+  className = "input",
+  ...rest
+}: { value: number | null; onChange: (v: number | null) => void; id?: string; placeholder?: string; integer?: boolean; className?: string } & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange">) {
   const [text, setText] = useState(numToInput(value));
   const last = useRef(value);
   useEffect(() => {
@@ -174,6 +182,7 @@ export function NumberInput({ value, onChange, id, placeholder, integer, classNa
   }, [value]);
   return (
     <input
+      {...rest}
       id={id}
       className={className}
       inputMode={integer ? "numeric" : "decimal"}

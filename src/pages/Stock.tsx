@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, GitMerge, Plus, Receipt, Search } from "lucide-react";
+import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, GitMerge, Plus, Receipt, Search, Sheet } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { stockValueCents } from "../../shared/prices";
@@ -95,9 +95,15 @@ export function StockPage() {
         title="Stock"
         subtitle={products.data ? `${products.data.length} produit${products.data.length > 1 ? "s" : ""}` : undefined}
         actions={
-          <button className="icon-btn bg-brand text-brand-ink active:bg-brand" onClick={() => setQuick(true)} aria-label="Nouveau produit">
-            <Plus className="size-5" />
-          </button>
+          <>
+            {/* Édition en tableau : uniquement sur grand écran. */}
+            <Link to="/stock/tableur" className="btn-ghost mr-2 hidden lg:inline-flex" title="Modifier les produits en tableau">
+              <Sheet className="size-4" /> Édition en masse
+            </Link>
+            <button className="icon-btn bg-brand text-brand-ink active:bg-brand" onClick={() => setQuick(true)} aria-label="Nouveau produit">
+              <Plus className="size-5" />
+            </button>
+          </>
         }
       />
       <div className="space-y-3 px-4">

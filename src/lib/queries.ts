@@ -110,6 +110,24 @@ export function useMergeProduct() {
   });
 }
 
+export type BulkUpdate = { id: string } & Omit<ProductInput, "photoId" | "locationId">;
+
+/** Vue tableur : enregistre plusieurs modifications/suppressions d'un coup (tout ou rien). */
+export function useBulkProducts() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { updates?: BulkUpdate[]; deletes?: string[] }) => api.post<Product[]>("/products/bulk", body),
+    onSuccess: (list, { deletes }) => {
+      qc.setQueryData(keys.products, list);
+      for (const id of deletes ?? []) qc.removeQueries({ queryKey: keys.product(id) });
+      qc.invalidateQueries({ queryKey: keys.products, predicate: (q) => q.queryKey.length > 1 });
+      qc.invalidateQueries({ queryKey: keys.recipes });
+      qc.invalidateQueries({ queryKey: ["shopping"] });
+    },
+    onError,
+  });
+}
+
 export function useDeleteProduct() {
   const qc = useQueryClient();
   return useMutation({

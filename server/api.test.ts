@@ -93,6 +93,56 @@ describe("stock", () => {
   });
 });
 
+describe("édition en masse", () => {
+  let e: Client;
+  beforeAll(async () => {
+    e = await userWithHousehold("e@foyer.test", "Foyer E");
+  });
+
+  it("modifie et supprime plusieurs produits d'un coup", async () => {
+    const [l1, l2] = (await e.call("GET", "/locations")).body;
+    const cat = (await e.call("GET", "/categories")).body.find((c: { kind: string }) => c.kind === "product");
+    const vide = (await e.call("POST", "/products", { name: "Café", defaultLocationId: l1.id })).body;
+    const range = (await e.call("POST", "/products", { name: "Thé", quantity: 2, locationId: l2.id })).body;
+    const jete = (await e.call("POST", "/products", { name: "Vieux", quantity: 1 })).body;
+
+    const r = await e.call("POST", "/products/bulk", {
+      updates: [
+        { id: vide.id, quantity: 3, minStock: 5, categoryId: cat.id, brand: "  " },
+        { id: range.id, name: "Thé vert", quantity: 4, unit: "Kg" },
+      ],
+      deletes: [jete.id],
+    });
+    expect(r.status).toBe(200);
+    const byId = new Map(r.body.map((p: { id: string }) => [p.id, p]));
+    expect(byId.get(vide.id)).toMatchObject({ quantity: 3, minStock: 5, status: "low", categoryId: cat.id, brand: null });
+    expect((byId.get(vide.id) as { stock: { locationId: string }[] }).stock[0].locationId).toBe(l1.id);
+    expect(byId.get(range.id)).toMatchObject({ name: "Thé vert", quantity: 4, unit: "kg" });
+    expect(byId.has(jete.id)).toBe(false);
+  });
+
+  it("corrige la ligne « sans emplacement » existante au lieu d'en créer une autre", async () => {
+    const [l1] = (await e.call("GET", "/locations")).body;
+    const p = (await e.call("POST", "/products", { name: "Lardons", quantity: 700, unit: "g" })).body;
+    const r = await e.call("POST", "/products/bulk", { updates: [{ id: p.id, defaultLocationId: l1.id, quantity: 650 }] });
+    const after = r.body.find((x: { id: string }) => x.id === p.id);
+    expect(after.stock).toHaveLength(1);
+    expect(after).toMatchObject({ quantity: 650, defaultLocationId: l1.id });
+  });
+
+  it("refuse tout si une ligne est invalide", async () => {
+    const [l1, l2] = (await e.call("GET", "/locations")).body;
+    const p = (await e.call("POST", "/products", { name: "Sucre", quantity: 1, locationId: l1.id })).body;
+    await e.call("POST", `/products/${p.id}/stock`, { locationId: l2.id, quantity: 1 });
+    const other = (await e.call("POST", "/products", { name: "Sel" })).body;
+    const r = await e.call("POST", "/products/bulk", { updates: [{ id: other.id, name: "Gros sel" }, { id: p.id, quantity: 9 }] });
+    expect(r.status).toBe(400);
+    expect((await e.call("GET", `/products/${other.id}`)).body.name).toBe("Sel");
+    const theirs = (await b.call("POST", "/products", { name: "Autre foyer" })).body;
+    expect((await e.call("POST", "/products/bulk", { deletes: [theirs.id] })).status).toBe(404);
+  });
+});
+
 describe("doublons de produits", () => {
   let d: Client;
   beforeAll(async () => {
