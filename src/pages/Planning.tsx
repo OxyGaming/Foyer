@@ -11,7 +11,7 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { ChefHat, ChevronLeft, ChevronRight, GripVertical, Plus, ShoppingCart } from "lucide-react";
+import { ChefHat, ChevronLeft, ChevronRight, GripVertical, Plus, Printer, ShoppingCart } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { addDays, formatDayLong, formatDayMonth, isIsoDate, MEAL_LABEL, type Meal, relativeDayLabel, todayIso, weekDays, weekStart } from "../../shared/dates";
@@ -192,9 +192,14 @@ export function PlanningPage() {
         title="Planning"
         subtitle={`${weekLabel} · ${planned} repas`}
         actions={
-          <Link to="/courses" className="icon-btn" aria-label="Liste de courses">
-            <ShoppingCart className="size-5" />
-          </Link>
+          <>
+            <Link to={`/planning/imprimer?semaine=${monday}`} className="icon-btn" aria-label="Imprimer la semaine">
+              <Printer className="size-5" />
+            </Link>
+            <Link to="/courses" className="icon-btn" aria-label="Liste de courses">
+              <ShoppingCart className="size-5" />
+            </Link>
+          </>
         }
       />
       <div className="px-4">
