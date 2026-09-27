@@ -1,5 +1,5 @@
 // Calcul des besoins du planning et de la consommation d'une recette.
-import { compatibleUnits, convertQty, roundForPurchase, unitDimension } from "./units";
+import { compatibleUnits, convertQty, isBasicUnit, roundForPurchase, unitDimension } from "./units";
 
 export type NeedsIngredient = { name: string; productId: string | null; quantity: number | null; unit: string | null };
 export type NeedsRecipe = { id: string; name: string; servings: number | null; ingredients: NeedsIngredient[] };
@@ -39,18 +39,22 @@ export function computeNeeds(meals: NeedsMeal[], recipes: Map<string, NeedsRecip
     for (const ing of recipe.ingredients) {
       const product = ing.productId ? products.get(ing.productId) : undefined;
       if (!product) continue;
-      const key = `${product.id}|${unitDimension(ing.unit)}`;
+      // « 1 pincée de sel » : traité comme un ingrédient sans quantité, dans l'unité du stock.
+      const basic = isBasicUnit(ing.unit);
+      const ingUnit = basic ? product.unit : ing.unit;
+      const ingQty = basic ? null : ing.quantity;
+      const key = `${product.id}|${unitDimension(ingUnit)}`;
       let a = acc.get(key);
       if (!a) {
         // On exprime le besoin dans l'unité du stock quand c'est possible :
         // l'achat pourra alors être rangé tel quel.
-        const unit = compatibleUnits(product.unit, ing.unit) && product.unit ? product.unit : ing.unit;
+        const unit = compatibleUnits(product.unit, ingUnit) && product.unit ? product.unit : ingUnit;
         a = { productId: product.id, unit, sum: null, recipes: new Set() };
         acc.set(key, a);
       }
       a.recipes.add(recipe.name || "Recette");
-      if (ing.quantity != null) {
-        const q = convertQty(ing.quantity * factor, ing.unit, a.unit);
+      if (ingQty != null) {
+        const q = convertQty(ingQty * factor, ingUnit, a.unit);
         if (q != null) a.sum = (a.sum ?? 0) + q;
       }
     }
@@ -60,16 +64,20 @@ export function computeNeeds(meals: NeedsMeal[], recipes: Map<string, NeedsRecip
   for (const [key, a] of acc) {
     const product = products.get(a.productId)!;
     const stock = product.quantity != null ? convertQty(product.quantity, product.unit, a.unit) : null;
-    let toBuy: number | null = null;
-    let covered = false;
-    if (a.sum != null) {
-      const raw = stock != null ? Math.max(0, a.sum - stock) : a.sum;
+    const inStock = product.quantity != null && product.quantity > 0;
+    let toBuy: number | null;
+    if (a.sum != null && stock != null) {
+      const raw = Math.max(0, a.sum - stock);
       toBuy = raw > 1e-9 ? roundForPurchase(raw, a.unit) : 0;
-      covered = toBuy === 0;
+    } else if (inStock) {
+      // Sans quantité, ou stock dans une unité incomparable (« 2 c. à soupe »
+      // d'une bouteille) : couvert s'il en reste un peu.
+      toBuy = 0;
     } else {
-      // Ingrédient sans quantité : couvert s'il en reste un peu en stock.
-      covered = product.quantity != null && product.quantity > 0;
+      toBuy = a.sum != null ? roundForPurchase(a.sum, a.unit) : null;
     }
+    // Couvert ⇔ rien à acheter : c'est ce que la liste de courses affiche.
+    const covered = toBuy === 0;
     out.push({
       key,
       productId: a.productId,

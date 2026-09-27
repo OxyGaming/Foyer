@@ -39,6 +39,11 @@ export function parseUnit(unit: string | null | undefined): Unit {
   return KNOWN[k] ?? { dim: `other:${k}`, factor: 1, label: unit!.trim() };
 }
 
+// « 1 pincée de sel », « poivre à goût » : on ne mesure pas, seule la présence compte.
+const BASIC_UNITS = new Set(["pincee", "pincees", "a gout", "au gout", "un peu", "filet", "trait"]);
+export const isBasicUnit = (u: string | null | undefined) =>
+  !!u && BASIC_UNITS.has(u.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim());
+
 /** Dimension d'une unité : "mass", "volume", "count" ou "other:<nom>". */
 export const unitDimension = (unit: string | null | undefined) => parseUnit(unit).dim;
 

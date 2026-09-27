@@ -69,7 +69,7 @@ describe("computeNeeds", () => {
     const withStock = products([{ id: "lait", name: "Lait", unit: "L", quantity: 0.2 }, { id: "oeufs", name: "Œufs", unit: null, quantity: null }, { id: "sel", name: "Sel", unit: null, quantity: 1 }]);
     const needs = computeNeeds([{ recipeId: "crepes", servings: null, cooked: false }], recipes([crepes]), withStock);
     expect(needs.find((n) => n.productId === "lait")).toMatchObject({ unit: "L", needed: 0.5, stock: 0.2, toBuy: 0.3 });
-    expect(needs.find((n) => n.productId === "sel")).toMatchObject({ needed: null, toBuy: null, covered: true });
+    expect(needs.find((n) => n.productId === "sel")).toMatchObject({ needed: null, toBuy: 0, covered: true });
   });
 
   it("adapte aux portions prévues et ignore les repas déjà cuisinés", () => {
@@ -77,11 +77,38 @@ describe("computeNeeds", () => {
     expect(needs[0]).toMatchObject({ needed: 6 });
   });
 
-  it("ne soustrait pas un stock d'unité incomparable", () => {
-    const pm = products([{ id: "lait", name: "Lait", unit: "bouteille", quantity: 3 }]);
+  it("stock d'unité incomparable : couvert s'il en reste, sinon on achète le besoin", () => {
     const r: NeedsRecipe = { id: "r", name: "R", servings: null, ingredients: [{ name: "Lait", productId: "lait", quantity: 250, unit: "ml" }] };
-    const needs = computeNeeds([{ recipeId: "r", servings: null, cooked: false }], recipes([r]), pm);
-    expect(needs[0]).toMatchObject({ unit: "ml", needed: 250, stock: null, toBuy: 250 });
+    const meals = [{ recipeId: "r", servings: null, cooked: false }];
+    const some = computeNeeds(meals, recipes([r]), products([{ id: "lait", name: "Lait", unit: "bouteille", quantity: 3 }]));
+    expect(some[0]).toMatchObject({ unit: "ml", needed: 250, stock: null, toBuy: 0, covered: true });
+    const none = computeNeeds(meals, recipes([r]), products([{ id: "lait", name: "Lait", unit: "bouteille", quantity: 0 }]));
+    expect(none[0]).toMatchObject({ toBuy: 250, covered: false });
+  });
+
+  it("1 pincée de sel avec 1 kg en stock : rien à acheter", () => {
+    const r: NeedsRecipe = { id: "r", name: "R", servings: null, ingredients: [{ name: "Sel", productId: "sel", quantity: 1, unit: "pincée" }] };
+    const meals = [{ recipeId: "r", servings: null, cooked: false }];
+    const full = computeNeeds(meals, recipes([r]), products([{ id: "sel", name: "Sel", unit: "kg", quantity: 1 }]));
+    expect(full).toHaveLength(1);
+    expect(full[0]).toMatchObject({ unit: "kg", needed: null, stock: 1, toBuy: 0, covered: true });
+    const empty = computeNeeds(meals, recipes([r]), products([{ id: "sel", name: "Sel", unit: "kg", quantity: 0 }]));
+    expect(empty[0]).toMatchObject({ unit: "kg", needed: null, toBuy: null, covered: false });
+  });
+
+  it("une pincée s'ajoute à la ligne chiffrée du même produit", () => {
+    const r: NeedsRecipe = {
+      id: "r",
+      name: "R",
+      servings: null,
+      ingredients: [
+        { name: "Sel", productId: "sel", quantity: 200, unit: "g" },
+        { name: "Sel", productId: "sel", quantity: 1, unit: "pincée" },
+      ],
+    };
+    const needs = computeNeeds([{ recipeId: "r", servings: null, cooked: false }], recipes([r]), products([{ id: "sel", name: "Sel", unit: "kg", quantity: 0.1 }]));
+    expect(needs).toHaveLength(1);
+    expect(needs[0]).toMatchObject({ unit: "kg", needed: 0.2, toBuy: 0.1 });
   });
 });
 

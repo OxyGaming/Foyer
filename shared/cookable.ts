@@ -5,7 +5,7 @@
 // quantité (« Sel ») est un basique : il ne bloque jamais la recette, on le
 // signale seulement s'il semble absent du stock.
 import { servingsFactor, type NeedsProduct, type NeedsRecipe } from "./needs";
-import { convertQty, roundForPurchase } from "./units";
+import { convertQty, isBasicUnit, roundForPurchase } from "./units";
 
 export type Missing = {
   productId: string;
@@ -30,10 +30,6 @@ export type Cookable = {
 
 export type StockProduct = NeedsProduct & { hasStockLine: boolean };
 
-// « 1 pincée de sel », « poivre à goût » : des basiques, même chiffrés.
-const BASIC_UNITS = new Set(["pincee", "pincees", "a gout", "au gout", "un peu", "filet", "trait"]);
-const isBasicUnit = (u: string | null) => !!u && BASIC_UNITS.has(u.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim());
-
 export function cookability(recipe: NeedsRecipe, products: Map<string, StockProduct>, plannedServings: number | null = null): Cookable {
   const factor = servingsFactor(plannedServings, recipe.servings);
   // Plusieurs lignes du même produit (« 2 œufs » + « 1 œuf pour dorer ») : on additionne.
@@ -42,6 +38,7 @@ export function cookability(recipe: NeedsRecipe, products: Map<string, StockProd
     if (!ing.productId || !products.has(ing.productId)) continue;
     const p = products.get(ing.productId)!;
     const cur = needs.get(p.id);
+    // « 1 pincée de sel », « poivre à goût » : des basiques, même chiffrés.
     if (ing.quantity == null || isBasicUnit(ing.unit)) {
       if (!cur) needs.set(p.id, { qty: null, unit: p.unit, basic: true });
       continue;
