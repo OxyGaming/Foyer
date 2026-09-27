@@ -23,6 +23,7 @@ const ProductDetailPage = page(() => import("./pages/ProductDetail"), "ProductDe
 const ProductEditPage = page(() => import("./pages/ProductEdit"), "ProductEditPage");
 const RecipeDetailPage = page(() => import("./pages/RecipeDetail"), "RecipeDetailPage");
 const RecipeEditPage = page(() => import("./pages/RecipeEdit"), "RecipeEditPage");
+const RecipeImportPage = page(() => import("./pages/RecipeImport"), "RecipeImportPage");
 const RestockPage = page(() => import("./pages/Restock"), "RestockPage");
 const SearchPage = page(() => import("./pages/Search"), "SearchPage");
 const ShoppingPage = page(() => import("./pages/Shopping"), "ShoppingPage");
@@ -82,6 +83,7 @@ export const router = createBrowserRouter([
           { path: "/recettes", element: <RecipesPage /> },
           { path: "/recettes/nouvelle", element: <RecipeEditPage /> },
           { path: "/recettes/avec-mon-stock", element: <CookablePage /> },
+          { path: "/recettes/importer", element: <RecipeImportPage /> },
           { path: "/recettes/:id", element: <RecipeDetailPage /> },
           { path: "/recettes/:id/modifier", element: <RecipeEditPage /> },
           { path: "/planning", element: <PlanningPage /> },
