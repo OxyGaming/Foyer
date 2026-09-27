@@ -66,6 +66,15 @@ Tout est rattaché à un **Household**. Un utilisateur appartient à un foyer vi
 
 Les ingrédients de recette sont reliés automatiquement à un produit du catalogue (même nom, sans tenir compte des accents ni des majuscules ; « Œufs » = « oeufs »). Le produit est créé s'il n'existe pas. C'est ce lien qui permet de générer les courses en tenant compte du stock.
 
+### Import de recettes
+
+**Recettes → icône presse-papiers** (`/recettes/importer`).
+
+- **Excel (recommandé)** : bouton « Modèle » → classeur à deux onglets, *Recettes* (une ligne par recette : portions, temps, tags, description, étapes une par ligne, notes) et *Ingrédients* (Recette | Ingrédient | Quantité | Unité | Note). Les colonnes sont reconnues par leur en-tête, dans n'importe quel ordre ; une cellule Recette vide reprend la ligne du dessus ; « 5-6 » donne 6 (note « 5 à 6 »). Lecture/écriture avec `read-excel-file` / `write-excel-file`, chargées à la demande. Code : `src/lib/excelImport.ts` (lecture, testée avec un aller-retour de fichier réel) et `src/lib/excelTemplate.ts` (modèle).
+- **Texte collé** : `src/lib/recipeImport.ts` reconnaît titres (☐/☑ en début de ligne, `# Titre`, ou ligne suivie d'une liste), ingrédients en puces (y compris `* ☐ 1 oignon`) et étapes.
+
+Rien n'est enregistré avant l'aperçu : les doublons (mêmes mots dans n'importe quel ordre, dans le fichier ou déjà enregistrés) sont décochés d'office. L'import (`POST /api/recipes/import`) se fait en une seule transaction ; le rapprochement avec le catalogue tolère le pluriel simple (« Tomates » = « tomate »).
+
 ### Courses générées depuis le planning
 
 `shared/needs.ts` (testé) : pour la période choisie, les besoins de toutes les recettes non cuisinées sont additionnés par produit (portions prévues comprises), convertis dans l'unité du stock (g↔kg, ml↔cl↔L), puis le stock est déduit. Carbonara (3 œufs) + Crêpes (3 œufs) avec 4 œufs en stock → **Œufs — 2**. Stock suffisant → « Stock suffisant ✓ ». Les quantités corrigées à la main et les articles cochés sont conservés lors des recalculs. Les unités incomparables (« c. à soupe » face à un stock en « paquet ») ne sont jamais converties au hasard.
