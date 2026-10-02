@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { api } from "./api";
 import { toastError } from "./errors";
 import { keys } from "./queries";
@@ -33,7 +32,6 @@ export function useAddPurchase() {
     mutationFn: (p: PurchaseInput & { productId: string; addToStock: boolean; locationId?: string | null }) => api.post<Purchase>("/purchases", p),
     onSuccess: (_r, v) => {
       refreshAfterPurchase(qc, v.productId);
-      toast.success(v.addToStock && v.quantity ? "Achat enregistré et ajouté au stock" : "Achat enregistré");
     },
     onError: toastError,
   });
@@ -65,10 +63,9 @@ export function useSaveInventory() {
   return useMutation({
     mutationFn: (entries: { productId: string; locationId: string | null; quantity: number }[]) =>
       api.post<{ counted: number; corrected: number }>("/inventory", { entries }),
-    onSuccess: (r) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.products });
       qc.invalidateQueries({ queryKey: ["inventory-history"] });
-      toast.success(r.corrected ? `${r.counted} ligne(s) comptée(s), ${r.corrected} corrigée(s)` : `${r.counted} ligne(s) comptée(s) : tout était juste ✓`);
     },
     onError: toastError,
   });

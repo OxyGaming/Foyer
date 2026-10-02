@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { toast } from "sonner";
 import { cookability, type Cookable, type Missing, rankCookable, type StockProduct } from "../../shared/cookable";
 import type { NeedsRecipe } from "../../shared/needs";
 import { clientId } from "./planQueries";
@@ -30,10 +29,9 @@ export function useCookable() {
 /** Ajoute les ingrédients manquants à la liste de courses (fonctionne hors ligne). */
 export function useAddMissingToShopping() {
   const add = useAddItem();
-  return (missing: Missing[], recipeName?: string) => {
+  return (missing: Missing[]) => {
     for (const m of missing) {
       add.mutate({ id: clientId(), name: m.name, productId: m.productId, quantity: m.toBuy, unit: m.unit });
     }
-    toast.success(`${missing.length} article${missing.length > 1 ? "s" : ""} ajouté${missing.length > 1 ? "s" : ""} aux courses${recipeName ? ` pour « ${recipeName} »` : ""}`);
   };
 }

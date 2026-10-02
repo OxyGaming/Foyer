@@ -39,7 +39,6 @@ export function SettingsPage() {
     e.preventDefault();
     try {
       await api.post("/auth/password", pwd);
-      toast.success("Mot de passe modifié");
       setPwd({ current: "", next: "" });
       setEdit(null);
     } catch (err) {
@@ -68,7 +67,6 @@ export function SettingsPage() {
       }
     }
     await navigator.clipboard.writeText(text);
-    toast.success("Invitation copiée");
   }
 
   async function logout() {

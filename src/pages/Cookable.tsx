@@ -42,7 +42,7 @@ function CookableCard({ recipe, c, onPlan }: { recipe: RecipeSummary; c: Cookabl
           <CalendarPlus className="size-4" /> Planifier
         </button>
         {c.missing.length > 0 && (
-          <button className="btn-ghost min-h-11 flex-1 rounded-none border-l border-line text-sm text-brand" onClick={() => addMissing(c.missing, recipe.name)}>
+          <button className="btn-ghost min-h-11 flex-1 rounded-none border-l border-line text-sm text-brand" onClick={() => addMissing(c.missing)}>
             <ShoppingCart className="size-4" /> Aux courses
           </button>
         )}

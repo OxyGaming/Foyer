@@ -1,7 +1,6 @@
 import { ClipboardCheck, GitMerge, MapPin, Minus, MoveRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
 import { productKey } from "../../shared/text";
 import { PurchaseSection } from "@/components/PurchaseSection";
 import { NumberInput, PageHeader, PageLoader, Sheet, StatusBadge, Thumb, useConfirm } from "@/components/ui";
@@ -27,7 +26,6 @@ function MergeSheet({ product, others, initial, onClose }: { product: Product; o
       onSubmit={async (e) => {
         e.preventDefault();
         await merge.mutateAsync({ id: drop.id, intoId: keep.id });
-        toast.success("Produits fusionnés");
         onClose();
         if (keep.id !== product.id) navigate(`/produits/${keep.id}`, { replace: true });
       }}
@@ -149,7 +147,6 @@ export function ProductDetailPage() {
     });
     if (!ok) return;
     await delProduct.mutateAsync(p.id);
-    toast.success("Produit supprimé");
     navigate("/stock", { replace: true });
   }
 
@@ -321,7 +318,6 @@ export function ProductDetailPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               await setStock.mutateAsync({ productId: p.id, itemId: dialog.line.id, quantity: qty, inventory: true });
-              toast.success("Comptage enregistré");
               setDialog(null);
             }}
           >
@@ -343,7 +339,6 @@ export function ProductDetailPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               await setStock.mutateAsync({ productId: p.id, itemId: dialog.line.id, locationId: loc || null });
-              toast.success("Déplacé");
               setDialog(null);
             }}
           >

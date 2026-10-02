@@ -1,6 +1,5 @@
 import { type FormEvent, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
 import { PhotoPicker } from "@/components/PhotoPicker";
 import { Field, NumberInput, PageHeader, PageLoader, Spinner } from "@/components/ui";
 import { STOCK_UNIT_SUGGESTIONS } from "@/lib/format";
@@ -57,7 +56,6 @@ function ProductForm({ product }: { product?: Product }) {
       data.locationId = d.defaultLocationId || null;
     }
     const saved = await save.mutateAsync({ id: product?.id, data });
-    toast.success("Produit enregistré");
     navigate(`/produits/${saved.id}`, { replace: true });
   }
 

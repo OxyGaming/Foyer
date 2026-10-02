@@ -90,7 +90,7 @@ export function RecipeImportPage() {
 
   async function submit() {
     const t = tag.trim().replace(/^#/, "");
-    const res = await importRecipes.mutateAsync(
+    await importRecipes.mutateAsync(
       chosen.map((r) => {
         const tags = [...(r.extra?.tags ?? []), ...(t ? [t] : [])];
         return {
@@ -103,7 +103,6 @@ export function RecipeImportPage() {
         };
       }),
     );
-    toast.success(`${res.count} recette${res.count > 1 ? "s" : ""} importée${res.count > 1 ? "s" : ""}`);
     navigate("/recettes", { replace: true });
   }
 

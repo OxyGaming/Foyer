@@ -4,7 +4,6 @@
 // TanStack Query puisse les persister dans IndexedDB et les rejouer, dans
 // l'ordre (scope commun), au retour de la connexion.
 import { useIsMutating, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { api, isOfflineError } from "./api";
 import { toastError } from "./errors";
 import { keys } from "./queries";
@@ -134,7 +133,6 @@ export function useRestock() {
     mutationFn: () => api.post<ShoppingList & { added: number }>("/shopping/restock"),
     onSuccess: (d) => {
       qc.setQueryData(shoppingKey, d);
-      toast.success(d.added ? `${d.added} produit(s) ajouté(s)` : "Tout est déjà sur la liste");
     },
     onError,
   });
@@ -162,7 +160,6 @@ export function useStockIn() {
       qc.invalidateQueries({ queryKey: keys.locations });
       qc.invalidateQueries({ queryKey: ["purchases"] });
       qc.invalidateQueries({ queryKey: ["stores"] });
-      toast.success(d.stocked ? `${d.stocked} produit(s) rangé(s) dans le stock` : "Liste mise à jour");
     },
     onError,
   });

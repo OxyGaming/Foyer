@@ -1,7 +1,6 @@
 import { ChevronRight, GitMerge } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { toast } from "sonner";
 import { EmptyState, PageHeader, PageLoader } from "@/components/ui";
 import { findDuplicates, preferredKeeper, stockSummary } from "@/lib/duplicates";
 import { useMergeProduct, useProducts } from "@/lib/queries";
@@ -18,7 +17,6 @@ function DuplicateGroup({ group }: { group: Product[] }) {
     try {
       // Une à une : si des unités sont incomparables, on s'arrête avec le message du serveur.
       for (const p of group) if (p.id !== keep.id) await merge.mutateAsync({ id: p.id, intoId: keep.id });
-      toast.success(`« ${keep.name} » : fiches fusionnées`);
     } catch {
       // Message déjà affiché par la mutation.
     } finally {

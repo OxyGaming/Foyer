@@ -3,7 +3,6 @@
 // (setMutationDefaults), persistées dans IndexedDB et rejouées dans l'ordre
 // (scope commun) au retour du réseau, même après fermeture de l'appli.
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { api, isOfflineError } from "./api";
 import { toastError } from "./errors";
 import { keys } from "./queries";
@@ -115,10 +114,9 @@ export function useCookMeal() {
   return useMutation({
     mutationFn: ({ id, consume }: { id: string; consume: { productId: string; quantity: number }[] }) =>
       api.post<{ item: MealPlanItem; consumed: { productId: string; quantity: number }[] }>(`/plan/${id}/cook`, { consume }),
-    onSuccess: (r) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["plan"] });
       qc.invalidateQueries({ queryKey: keys.products });
-      if (r.consumed.length) toast.success(`${r.consumed.length} ingrédient(s) retiré(s) du stock`);
     },
     onError: toastError,
   });

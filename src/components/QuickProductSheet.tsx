@@ -1,6 +1,5 @@
 import { type FormEvent, useState } from "react";
 import { useNavigate } from "react-router";
-import { toast } from "sonner";
 import { useLocations, useSaveProduct } from "@/lib/queries";
 import { flattenTree } from "@/lib/tree";
 import { NumberInput, Sheet } from "./ui";
@@ -16,8 +15,7 @@ export function QuickProductSheet({ open, onClose }: { open: boolean; onClose: (
 
   async function submit(e: FormEvent, andAnother = false) {
     e.preventDefault();
-    const p = await save.mutateAsync({ data: { name, quantity, locationId: locationId || null } });
-    toast.success(`« ${p.name || "Produit"} » ajouté`);
+    await save.mutateAsync({ data: { name, quantity, locationId: locationId || null } });
     setName("");
     setQuantity(null);
     if (!andAnother) onClose();
