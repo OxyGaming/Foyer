@@ -1,3 +1,4 @@
+import { FileUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { addDays, todayIso, weekStart } from "../../shared/dates";
@@ -83,7 +84,15 @@ export function SpendingPage() {
 
   return (
     <>
-      <PageHeader back="/stock" title="Dépenses" />
+      <PageHeader
+        back="/stock"
+        title="Dépenses"
+        actions={
+          <Link to="/achats/importer" className="btn-ghost mr-1 px-3 text-sm">
+            <FileUp className="size-4" /> Importer une facture
+          </Link>
+        }
+      />
       <div className="space-y-5 px-4 pb-6">
         <Chips options={PERIODS} value={period} onChange={setPeriod} />
         {purchases.isPending ? (

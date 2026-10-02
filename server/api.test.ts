@@ -566,3 +566,41 @@ describe("ingrédients depuis l'édition en masse", () => {
     expect((await m.call("GET", "/products")).body.some((p: { name: string }) => p.name === "Ciboulette")).toBe(true);
   });
 });
+
+describe("import d'une facture de drive", () => {
+  let f: Client;
+  beforeAll(async () => {
+    f = await userWithHousehold("f@foyer.test", "Foyer F");
+  });
+
+  it("enregistre les achats, range le stock, crée les produits et apprend les libellés", async () => {
+    const lait = (await f.call("POST", "/products", { name: "Lait demi-écrémé", unit: "L", quantity: 1 })).body;
+    const res = await f.call("POST", "/purchases/receipt", {
+      date: "2026-09-30",
+      storeName: "E.Leclerc Drive",
+      lines: [
+        { label: "LAIT 1/2 ECR UHT 6X1L", productId: lait.id, quantity: 6, unit: "L", totalCents: 594 },
+        { label: "CREME FR.EP 30% 20CL", newProductName: "Crème fraîche épaisse", quantity: 20, unit: "cl", totalCents: 129, isPromo: true },
+        { label: "SAC CABAS", newProductName: "Sac cabas", quantity: 1, unit: "pièce", totalCents: 10, addToStock: false },
+      ],
+    });
+    expect(res.status).toBe(201);
+    expect((await f.call("GET", `/products/${lait.id}`)).body).toMatchObject({ quantity: 7 });
+    const products = (await f.call("GET", "/products")).body as { id: string; name: string; quantity: number | null; unit: string | null; stock: unknown[] }[];
+    const creme = products.find((p) => p.name === "Crème fraîche épaisse")!;
+    expect(creme).toMatchObject({ quantity: 20, unit: "cl" });
+    expect(products.find((p) => p.name === "Sac cabas")!.stock).toHaveLength(0);
+    const purchases = (await f.call("GET", "/purchases?from=2026-09-30&to=2026-09-30")).body;
+    expect(purchases).toHaveLength(3);
+    expect(purchases.find((p: { productId: string }) => p.productId === creme.id)).toMatchObject({ totalCents: 129, isPromo: true, store: { name: "E.Leclerc Drive" } });
+    const labels = (await f.call("GET", "/purchases/receipt-labels")).body;
+    expect(labels).toContainEqual({ label: "creme fr.ep 30% 20cl", productId: creme.id });
+  });
+
+  it("refuse tout si un produit n'est pas du foyer", async () => {
+    const theirs = (await b.call("POST", "/products", { name: "Produit B" })).body;
+    const res = await f.call("POST", "/purchases/receipt", { lines: [{ label: "X", newProductName: "Pain" }, { label: "Y", productId: theirs.id }] });
+    expect(res.status).toBe(404);
+    expect((await f.call("GET", "/products")).body.some((p: { name: string }) => p.name === "Pain")).toBe(false);
+  });
+});

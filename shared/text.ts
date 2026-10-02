@@ -10,6 +10,9 @@ export function normalize(s: string | null | undefined): string {
     .trim();
 }
 
+/** Clé d'un libellé de facture appris : sans accents, casse ni espaces superflus. */
+export const receiptLabelKey = (label: string) => normalize(label).slice(0, 200);
+
 export function matches(haystack: string | null | undefined, needle: string): boolean {
   const n = normalize(needle);
   return n.length > 0 && normalize(haystack).includes(n);

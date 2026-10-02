@@ -2,14 +2,13 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { isIsoDate } from "../../shared/dates";
 import { computeNeeds, type NeedsProduct, type NeedsRecipe } from "../../shared/needs";
-import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
+import { quantityToBuy, stockStatus, totalQuantity } from "../../shared/stock";
 import { normalize } from "../../shared/text";
 import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
 import { prisma } from "../db";
 import { HttpError, nameText, notFound, optId, optNumber, optText, optUnit, parseJson } from "../http";
-import { addToStock, defaultStockLocation } from "./products";
-import { resolveStore } from "./purchases";
+import { recordPurchase, resolveStore } from "./purchases";
 
 export const shoppingRoutes = new Hono<{ Variables: AuthVars }>();
 shoppingRoutes.use(requireAuth);
@@ -278,30 +277,11 @@ shoppingRoutes.post("/stock-in", async (c) => {
         const bought = e.unit !== undefined ? e.unit : item.unit;
         if (!product && item.name) product = await tx.product.create({ data: { householdId, name: item.name, unit: bought } });
         if (product) {
-          const locationId = e.locationId && locations.has(e.locationId) ? e.locationId : await defaultStockLocation(tx, product);
-          let unit = product.unit;
-          let quantity = e.quantity;
-          if (compatibleUnits(bought, product.unit)) {
-            // Convertie dans l'unité du produit : 5 kg → 5000 g.
-            if (quantity != null) quantity = roundQty(convertQty(quantity, bought, product.unit)!);
-          } else if ((await tx.stockItem.count({ where: { productId: product.id, quantity: { not: null } } })) === 0) {
-            // Pas encore de stock chiffré : le produit adopte l'unité de l'achat
-            // (celle supposée par une recette n'était qu'une indication).
-            await tx.product.update({ where: { id: product.id }, data: { unit: bought } });
-            unit = bought;
-          } else if (quantity != null) {
-            throw new HttpError(400, `« ${product.name} » est compté en ${product.unit ?? "pièces"} : impossible d'y ajouter des ${bought ?? "pièces"}. Choisissez l'unité du produit.`);
-          }
-          const purchase = await tx.purchase.create({
-            data: { householdId, productId: product.id, quantity, unit, totalCents: e.totalCents ?? null, storeId, userId: c.var.userId },
+          await recordPurchase(tx, {
+            householdId, userId: c.var.userId, product, quantity: e.quantity, unit: bought, totalCents: e.totalCents ?? null, storeId, addToStock: true,
+            locationId: e.locationId && locations.has(e.locationId) ? e.locationId : undefined,
+            note: body.storeName ? `Courses · ${body.storeName}` : "Courses",
           });
-          if (quantity != null && quantity > 0) {
-            await addToStock(tx, { householdId, productId: product.id, locationId, delta: quantity, type: "purchase", userId: c.var.userId, purchaseId: purchase.id, note: body.storeName ? `Courses · ${body.storeName}` : "Courses" });
-          } else {
-            // Quantité inconnue : le produit est « présent » à cet emplacement.
-            const line = await tx.stockItem.findFirst({ where: { productId: product.id, locationId } });
-            if (!line) await tx.stockItem.create({ data: { householdId, productId: product.id, locationId, quantity: null } });
-          }
           stocked++;
         }
       }

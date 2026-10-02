@@ -125,7 +125,7 @@ productRoutes.get("/:id", async (c) => {
  * comparables, ou s'il n'a encore aucun stock (souvent créé par une recette, son
  * unité n'était alors qu'une supposition).
  */
-async function reusableTwin(tx: Tx, householdId: string, name: string, unit: string | null) {
+export async function reusableTwin(tx: Tx, householdId: string, name: string, unit: string | null) {
   const key = productKey(name);
   if (!key) return null;
   const candidates = await tx.product.findMany({ where: { householdId }, select: { id: true, name: true, unit: true, _count: { select: { stockItems: true } } } });
@@ -209,6 +209,7 @@ productRoutes.post("/:id/merge", async (c) => {
       await tx.recipeIngredient.update({ where: { id: ing.id }, data: { alternatives: JSON.stringify(alts) } });
     }
     await tx.shoppingListItem.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+    await tx.receiptLabel.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
 
     const sameUnit = compatibleUnits(source.unit, target.unit);
     const fill: Record<string, unknown> = {};

@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, GitMerge, Plus, Receipt, Search, Sheet } from "lucide-react";
+import { AlertTriangle, ChevronRight, ClipboardCheck, Euro, FileUp, GitMerge, Plus, Receipt, Search, Sheet } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { stockValueCents } from "../../shared/prices";
@@ -128,7 +128,7 @@ export function StockPage() {
         )}
 
         {(products.data?.length ?? 0) > 0 && (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             <Link to="/stock/valeur" className="card flex flex-col items-center gap-1 p-2.5 text-center">
               <Euro className="size-5 text-brand" />
               <span className="text-xs font-semibold">{stockValue != null ? formatCents(stockValue, true) : "Valeur"}</span>
@@ -140,6 +140,10 @@ export function StockPage() {
             <Link to="/stock/inventaire" className="card flex flex-col items-center gap-1 p-2.5 text-center">
               <ClipboardCheck className="size-5 text-brand" />
               <span className="text-xs font-semibold">Inventaire</span>
+            </Link>
+            <Link to="/achats/importer" className="card flex flex-col items-center gap-1 p-2.5 text-center">
+              <FileUp className="size-5 text-brand" />
+              <span className="text-xs font-semibold">Facture</span>
             </Link>
           </div>
         )}

@@ -52,6 +52,7 @@ model Household {
   movements     StockMovement[]
   stores        Store[]
   purchases     Purchase[]
+  receiptLabels ReceiptLabel[]
 }
 
 model HouseholdMember {
@@ -242,6 +243,7 @@ model Product {
   purchases         Purchase[]
   ingredients       RecipeIngredient[]
   shoppingItems     ShoppingListItem[]
+  receiptLabels     ReceiptLabel[]
 
   @@index([householdId])
 }
@@ -316,6 +318,20 @@ model Purchase {
   movements   StockMovement[]
 
   @@index([productId, date])
+}
+
+/// Libellé de facture appris → produit (« CREME FR.EP 30% 20CL » → Crème fraîche
+/// épaisse) : la facture suivante le reconnaît toute seule. `label` est normalisé.
+model ReceiptLabel {
+  id          String    @id @default(cuid())
+  householdId String
+  label       String
+  productId   String
+  updatedAt   DateTime  @updatedAt
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([householdId, label])
 }
 
 // ─── Planning (phase 2) ──────────────────────────────────────────────────────

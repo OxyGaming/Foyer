@@ -17,6 +17,7 @@ const BulkEditPage = page(() => import("./pages/BulkEdit"), "BulkEditPage");
 const CookablePage = page(() => import("./pages/Cookable"), "CookablePage");
 const DuplicatesPage = page(() => import("./pages/Duplicates"), "DuplicatesPage");
 const IngredientLinksPage = page(() => import("./pages/IngredientLinks"), "IngredientLinksPage");
+const InvoiceImportPage = page(() => import("./pages/InvoiceImport"), "InvoiceImportPage");
 const InventoryPage = page(() => import("./pages/Inventory"), "InventoryPage");
 const SpendingPage = page(() => import("./pages/Spending"), "SpendingPage");
 const StatsPage = page(() => import("./pages/Stats"), "StatsPage");
@@ -134,6 +135,7 @@ export const router = createBrowserRouter([
           { path: "/stock/inventaire", element: <InventoryPage /> },
           { path: "/stock/doublons", element: <DuplicatesPage /> },
           { path: "/achats", element: <SpendingPage /> },
+          { path: "/achats/importer", element: <InvoiceImportPage /> },
           { path: "/statistiques", element: <StatsPage /> },
           { path: "/produits/nouveau", element: <ProductEditPage /> },
           { path: "/produits/:id", element: <ProductDetailPage /> },

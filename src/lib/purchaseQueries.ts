@@ -70,3 +70,34 @@ export function useSaveInventory() {
     onError: toastError,
   });
 }
+
+// ─── Import de facture ───────────────────────────────────────────────────────
+
+export const useReceiptLabels = () =>
+  useQuery({ queryKey: ["receipt-labels"], queryFn: () => api.get<{ label: string; productId: string }[]>("/purchases/receipt-labels") });
+
+export type ReceiptImportLine = {
+  label: string;
+  productId?: string;
+  newProductName?: string;
+  quantity: number | null;
+  unit: string | null;
+  totalCents: number | null;
+  isPromo: boolean;
+  addToStock: boolean;
+};
+
+/** Enregistre tous les achats d'une facture relue (tout ou rien) et mémorise les libellés. */
+export function useImportReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { date?: string; storeName?: string | null; lines: ReceiptImportLine[] }) => api.post<{ count: number }>("/purchases/receipt", body),
+    onSuccess: () => {
+      refreshAfterPurchase(qc);
+      qc.invalidateQueries({ queryKey: keys.products });
+      qc.invalidateQueries({ queryKey: ["receipt-labels"] });
+      qc.invalidateQueries({ queryKey: keys.locations });
+    },
+    onError: toastError,
+  });
+}

@@ -115,6 +115,7 @@ export function ProductPickSheet({
   initialQuery,
   currentId,
   onPick,
+  onCreate,
 }: {
   open: boolean;
   onClose: () => void;
@@ -123,6 +124,8 @@ export function ProductPickSheet({
   initialQuery: string;
   currentId: string | null;
   onPick: (id: string) => void;
+  /** Proposé en tête de liste : créer un produit portant le texte cherché. */
+  onCreate?: (name: string) => void;
 }) {
   const [q, setQ] = useState(initialQuery);
   useEffect(() => {
@@ -139,7 +142,14 @@ export function ProductPickSheet({
         <input className="input pl-10" type="search" placeholder="Chercher un produit…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </label>
       <ul className="max-h-[55dvh] divide-y divide-line overflow-y-auto rounded-xl border border-line">
-        {list.length === 0 && <li className="p-4 text-center text-sm text-ink-3">Aucun produit ne correspond</li>}
+        {onCreate && q.trim() && (
+          <li>
+            <button type="button" className="flex w-full items-center gap-3 px-3 py-2.5 text-left font-semibold text-brand" onClick={() => onCreate(q.trim())}>
+              + Nouveau produit « {q.trim()} »
+            </button>
+          </li>
+        )}
+        {list.length === 0 && !onCreate && <li className="p-4 text-center text-sm text-ink-3">Aucun produit ne correspond</li>}
         {list.map((p) => (
           <li key={p.id}>
             <button type="button" className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${p.id === currentId ? "bg-brand-soft" : ""}`} onClick={() => onPick(p.id)}>
