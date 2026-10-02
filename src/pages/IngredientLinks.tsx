@@ -1,7 +1,7 @@
 import { AlertTriangle, ChevronLeft, ChevronRight, Link2, Search, Shuffle, Unlink } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { matches } from "../../shared/text";
+import { matches, productKey } from "../../shared/text";
 import { AlternativesSheet, ProductPickSheet } from "@/components/AlternativesSheet";
 import { Pager } from "@/components/Pager";
 import { Chips, EmptyState, PageHeader, PageLoader, StatusBadge, Thumb } from "@/components/ui";
@@ -16,9 +16,10 @@ type Filter = "all" | LinkIssue;
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "Tous" },
   { value: "unlinked", label: "Non reliés" },
+  { value: "names", label: "Noms différents" },
   { value: "units", label: "Unités à vérifier" },
   { value: "missing", label: "Absents du stock" },
-  { value: "variants", label: "Avec variantes" },
+  { value: "variants", label: "Avec remplaçants" },
 ];
 
 const stockLabel = (p: Product) => (p.quantity != null ? formatQty(p.quantity, p.unit) : p.stock.length ? "en stock" : "pas en stock");
@@ -39,7 +40,7 @@ export function IngredientLinksPage() {
 
   const groups = useMemo(() => groupIngredients(recipes.data ?? [], products.data ?? []), [recipes.data, products.data]);
   const counts = useMemo(() => {
-    const c: Record<Filter, number> = { all: groups.length, unlinked: 0, units: 0, missing: 0, variants: 0 };
+    const c: Record<Filter, number> = { all: groups.length, unlinked: 0, names: 0, units: 0, missing: 0, variants: 0 };
     for (const g of groups) for (const i of g.issues) c[i]++;
     return c;
   }, [groups]);
@@ -83,6 +84,9 @@ export function IngredientLinksPage() {
         <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,22rem)_1fr] lg:gap-4 lg:px-4 lg:pb-4">
           {/* Liste */}
           <aside className={`${selected ? "hidden" : "flex"} min-h-0 flex-col gap-2 px-4 pb-8 lg:flex lg:px-0 lg:pb-0`}>
+            <p className="shrink-0 text-sm text-ink-2">
+              Chaque produit du stock et les ingrédients de recettes qui l'utilisent. C'est ce lien qui sert à « Que puis-je cuisiner ? » et à la liste de courses.
+            </p>
             <label className="relative block shrink-0">
               <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" />
               <input className="input pl-10" type="search" placeholder="Ingrédient, recette…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -100,7 +104,8 @@ export function IngredientLinksPage() {
                       <span className="block truncate font-semibold">{g.name}</span>
                       <span className="block truncate text-xs text-ink-2">
                         {g.uses.length} recette{g.uses.length > 1 ? "s" : ""}
-                        {g.alternatives.length > 0 && ` · ${g.alternatives.length} variante${g.alternatives.length > 1 ? "s" : ""}`}
+                        {g.aliases.length > 0 && <span className="text-watch"> · aussi « {g.aliases.join(" », « ")} »</span>}
+                        {g.alternatives.length > 0 && ` · ${g.alternatives.length} remplaçant${g.alternatives.length > 1 ? "s" : ""}`}
                         {g.product && ` · ${stockLabel(g.product)}`}
                       </span>
                     </span>
@@ -128,7 +133,7 @@ export function IngredientLinksPage() {
                 </div>
               </>
             ) : (
-              <div className="card flex h-full items-center justify-center p-8 text-center text-ink-3">Choisissez un ingrédient pour voir ses recettes, son stock et ses variantes.</div>
+              <div className="card flex h-full items-center justify-center p-8 text-center text-ink-3">Choisissez un produit à gauche pour voir quelles recettes l'utilisent.</div>
             )}
           </section>
         </div>
@@ -139,166 +144,169 @@ export function IngredientLinksPage() {
 
 function GroupIcon({ g }: { g: LinkGroup }) {
   if (!g.product) return <Unlink className="size-5 shrink-0 text-low" aria-label="Non relié au stock" />;
-  if (g.issues.has("units")) return <AlertTriangle className="size-5 shrink-0 text-watch" aria-label="Unités à vérifier" />;
+  if (g.issues.has("units") || g.issues.has("names")) return <AlertTriangle className="size-5 shrink-0 text-watch" aria-label="Unités à vérifier" />;
   return <span className={`mx-1.5 size-2 shrink-0 rounded-full ${g.missing ? "bg-line" : "bg-ok"}`} aria-label={g.missing ? "Absent du stock" : "En stock"} />;
 }
 
 function GroupDetail({ g, products, locations, onMoved }: { g: LinkGroup; products: Product[]; locations: Location[]; onMoved: (key: string) => void }) {
   const link = useLinkIngredients();
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
-  // Les actions portent sur les recettes cochées (toutes par défaut).
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(g.uses.map((u) => u.ingredientId)));
-  const [sheet, setSheet] = useState<"product" | "variants" | null>(null);
-  const ids = g.uses.filter((u) => picked.has(u.ingredientId)).map((u) => u.ingredientId);
-  const pickedUses = g.uses.filter((u) => picked.has(u.ingredientId));
+  // Ingrédients visés par « Relier à… » : une ligne (bouton « Changer ») ou toutes.
+  const [target, setTarget] = useState<{ ids: string[]; label: string } | null>(null);
+  const [variants, setVariants] = useState(false);
+  const all = g.uses.map((u) => u.ingredientId);
   const p = g.product;
   const where = p ? [...new Set(p.stock.map((s) => (s.locationId ? pathLabel(locations, s.locationId) : null)).filter(Boolean))].join(", ") : "";
+  const unitName = (u: string | null) => (u && u !== "pièce" ? u : "pièces");
 
   return (
-    <div className="space-y-5">
-      {/* Produit relié */}
-      <div className="card flex items-center gap-3 p-3">
+    <div className="space-y-6">
+      {/* 1. Le produit du stock */}
+      <section>
+        <p className="label">Produit du stock</p>
         {p ? (
-          <>
+          <div className="card flex items-center gap-3 p-3">
             <Thumb photoId={p.photoId} fallback="📦" className="size-14 shrink-0 rounded-xl" />
             <div className="min-w-0 flex-1">
               <Link to={`/produits/${p.id}`} className="block truncate text-lg font-bold hover:text-brand">
                 {p.name || "Sans nom"}
               </Link>
               <p className="flex flex-wrap items-center gap-2 text-sm text-ink-2">
-                <span className="tabular-nums">{stockLabel(p)}</span>
+                <span className="tabular-nums">Stock : {stockLabel(p)}</span>
                 <StatusBadge status={p.status} />
                 {where && <span className="truncate text-ink-3">📍 {where}</span>}
               </p>
             </div>
-          </>
+          </div>
         ) : (
-          <div className="flex-1">
-            <p className="text-lg font-bold">{g.name}</p>
-            <p className="text-sm text-low">Pas relié au stock : il ne compte ni pour « Que puis-je cuisiner ? » ni pour les courses.</p>
+          <div className="card p-3">
+            <p className="font-bold">Aucun</p>
+            <p className="text-sm text-low">« {g.name} » n'est relié à aucun produit : il ne compte ni pour « Que puis-je cuisiner ? » ni pour les courses.</p>
+            <button className="btn-soft mt-2 min-h-9 text-sm" onClick={() => setTarget({ ids: all, label: `« ${g.name} »` })}>
+              <Link2 className="size-4" /> Relier à un produit
+            </button>
           </div>
         )}
-      </div>
-      {g.aliases.length > 0 && <p className="-mt-3 px-1 text-sm text-ink-2">Appelé aussi dans les recettes : {g.aliases.map((a) => `« ${a} »`).join(", ")}</p>}
-
-      {/* Variantes */}
-      <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-lg font-bold">Variantes acceptées</h2>
-          <button className="btn-ghost min-h-9 px-2 text-sm" onClick={() => setSheet("variants")} disabled={!ids.length || !p}>
-            <Shuffle className="size-4" /> Modifier
-          </button>
-        </div>
-        {g.alternatives.length === 0 ? (
-          <p className="card p-3 text-sm text-ink-2">
-            Aucune. Ex. pour « Pâtes » : tagliatelles et coquillettes conviennent, pas les raviolis. Le stock de l'une d'elles suffira pour cuisiner.
-          </p>
-        ) : (
-          <ul className="card divide-y divide-line">
-            {g.alternatives.map((id) => {
-              const alt = byId.get(id);
-              if (!alt) return null;
-              const n = g.uses.filter((u) => u.alternatives.includes(id)).length;
-              return (
-                <li key={id} className="flex items-center gap-3 px-3 py-2.5">
-                  <Link to={`/produits/${id}`} className="min-w-0 flex-1 truncate font-medium hover:text-brand">
-                    {alt.name}
-                  </Link>
-                  {n < g.uses.length && <span className="text-xs text-ink-3">{n} recette{n > 1 ? "s" : ""}</span>}
-                  <span className="text-sm text-ink-2 tabular-nums">{stockLabel(alt)}</span>
-                  <StatusBadge status={alt.status} compact />
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </section>
 
-      {/* Recettes */}
+      {/* 2. Les ingrédients de recettes qui puisent dans ce produit */}
       <section>
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="text-lg font-bold">
-            Dans {g.uses.length} recette{g.uses.length > 1 ? "s" : ""}
-          </h2>
-          <button className="btn-ghost min-h-9 px-2 text-sm" onClick={() => setSheet("product")} disabled={!ids.length}>
-            <Link2 className="size-4" /> {p ? "Relier à un autre produit" : "Relier au stock"}
-          </button>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-lg font-bold">Ingrédients de recettes reliés ({g.uses.length})</h2>
+          {p && g.uses.length > 1 && (
+            <button className="btn-ghost min-h-9 px-2 text-sm" onClick={() => setTarget({ ids: all, label: `les ${g.uses.length} ingrédients` })}>
+              <Link2 className="size-4" /> Tout relier ailleurs
+            </button>
+          )}
         </div>
+        <p className="mb-2 text-sm text-ink-2">{p ? <>Quand ces recettes sont cuisinées ou prévues, c'est le stock de « {p.name} » qui est vérifié et décompté.</> : "Ingrédients sans produit du stock."}</p>
         <ul className="card divide-y divide-line">
-          {g.uses.map((u) => (
-            <li key={u.ingredientId} className="flex items-start gap-3 px-3 py-2.5">
-              <input
-                type="checkbox"
-                className="mt-1 size-4 shrink-0 accent-[var(--brand)]"
-                checked={picked.has(u.ingredientId)}
-                onChange={() =>
-                  setPicked((s) => {
-                    const n = new Set(s);
-                    if (n.has(u.ingredientId)) n.delete(u.ingredientId);
-                    else n.add(u.ingredientId);
-                    return n;
-                  })
-                }
-                aria-label={`Inclure ${u.recipeName}`}
-              />
-              <span className="min-w-0 flex-1">
-                <Link to={`/recettes/${u.recipeId}`} className="block truncate font-medium hover:text-brand">
-                  {u.recipeName}
-                </Link>
-                <span className="block text-xs text-ink-2">
-                  {u.name}
-                  {u.alternatives.length > 0 && ` · ou ${u.alternatives.map((a) => byId.get(a)?.name ?? "?").join(", ")}`}
-                </span>
-                {u.unitMismatch && p && (
-                  <span className="mt-0.5 flex items-center gap-1 text-xs text-watch">
-                    <AlertTriangle className="size-3.5" /> En « {u.unit ?? "pièce"} » alors que le stock compte en « {p.unit ?? "pièce"} » : quantité non déduite
-                  </span>
-                )}
-              </span>
-              {(u.quantity != null || u.unit) && <span className="shrink-0 text-sm font-semibold text-ink-2 tabular-nums">{formatQty(u.quantity, u.unit)}</span>}
-            </li>
-          ))}
+          {g.uses.map((u) => {
+            const otherName = !!p && productKey(u.name) !== productKey(p.name);
+            return (
+              <li key={u.ingredientId} className="flex items-start gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium">
+                    {(u.quantity != null || u.unit) && <span className="text-ink-2 tabular-nums">{formatQty(u.quantity, u.unit)} </span>}
+                    {u.name || "Sans nom"}
+                  </p>
+                  <p className="text-xs text-ink-2">
+                    dans{" "}
+                    <Link to={`/recettes/${u.recipeId}`} className="font-semibold hover:text-brand">
+                      {u.recipeName}
+                    </Link>
+                  </p>
+                  {otherName && (
+                    <p className="mt-0.5 flex gap-1 text-xs text-watch">
+                      <AlertTriangle className="mt-px size-3.5 shrink-0" /> Le nom diffère du produit « {p.name} » : est-ce le bon produit ?
+                    </p>
+                  )}
+                  {u.unitMismatch && p && (
+                    <p className="mt-0.5 flex gap-1 text-xs text-watch">
+                      <AlertTriangle className="mt-px size-3.5 shrink-0" /> Des {unitName(u.unit)} ne se comparent pas au stock de « {p.name} », compté en {unitName(p.unit)} : quantité ni vérifiée ni ajoutée aux courses.
+                    </p>
+                  )}
+                  {u.alternatives.length > 0 && <p className="mt-0.5 text-xs text-ink-2">Ou à la place : {u.alternatives.map((a) => byId.get(a)?.name ?? "?").join(", ")}</p>}
+                </div>
+                <button className="btn-ghost min-h-8 shrink-0 px-2 text-xs" onClick={() => setTarget({ ids: [u.ingredientId], label: `« ${u.name} » (${u.recipeName})` })}>
+                  <Link2 className="size-3.5" /> Changer
+                </button>
+              </li>
+            );
+          })}
         </ul>
-        {ids.length < g.uses.length && <p className="mt-1 px-1 text-xs text-ink-3">Les modifications s'appliqueront aux {ids.length} recettes cochées.</p>}
       </section>
+
+      {/* 3. Les produits qui peuvent le remplacer */}
+      {p && (
+        <section>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-bold">Produits acceptés à la place</h2>
+            <button className="btn-ghost min-h-9 px-2 text-sm" onClick={() => setVariants(true)}>
+              <Shuffle className="size-4" /> Modifier
+            </button>
+          </div>
+          <p className="mb-2 text-sm text-ink-2">
+            Si « {p.name} » manque, ces produits conviennent aussi dans ces recettes. Ex. pour des pâtes : tagliatelles ou coquillettes, mais pas des raviolis.
+          </p>
+          {g.alternatives.length === 0 ? (
+            <p className="card p-3 text-sm text-ink-3">Aucun : seul « {p.name} » convient.</p>
+          ) : (
+            <ul className="card divide-y divide-line">
+              {g.alternatives.map((id) => {
+                const alt = byId.get(id);
+                if (!alt) return null;
+                const n = g.uses.filter((u) => u.alternatives.includes(id)).length;
+                return (
+                  <li key={id} className="flex items-center gap-3 px-3 py-2.5">
+                    <Link to={`/produits/${id}`} className="min-w-0 flex-1 truncate font-medium hover:text-brand">
+                      {alt.name}
+                    </Link>
+                    {n < g.uses.length && (
+                      <span className="text-xs text-ink-3">
+                        {n} recette{n > 1 ? "s" : ""} sur {g.uses.length}
+                      </span>
+                    )}
+                    <span className="text-sm text-ink-2 tabular-nums">{stockLabel(alt)}</span>
+                    <StatusBadge status={alt.status} compact />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       <AlternativesSheet
-        open={sheet === "variants"}
-        onClose={() => setSheet(null)}
+        open={variants}
+        onClose={() => setVariants(false)}
         products={products}
         name={g.name}
         mainId={p?.id ?? null}
-        value={[...new Set(pickedUses.flatMap((u) => u.alternatives))]}
+        value={g.alternatives}
         busy={link.isPending}
-        onSave={(alternatives) =>
-          link.mutate(
-            { ids, alternatives },
-            {
-              onSuccess: () => {
-                setSheet(null);
-              },
-            },
-          )
-        }
+        onSave={(alternatives) => link.mutate({ ids: all, alternatives }, { onSuccess: () => setVariants(false) })}
       />
       <ProductPickSheet
-        open={sheet === "product"}
-        onClose={() => setSheet(null)}
+        open={!!target}
+        onClose={() => setTarget(null)}
         products={products}
-        title={`Relier « ${g.name} » à…`}
-        initialQuery={p ? "" : g.name}
+        title={`Relier ${target?.label ?? ""} à…`}
+        initialQuery={g.uses.find((u) => u.ingredientId === target?.ids[0])?.name ?? g.name}
         currentId={p?.id ?? null}
-        onPick={(productId) =>
+        onPick={(productId) => {
+          const moved = target?.ids ?? [];
           link.mutate(
-            { ids, productId },
+            { ids: moved, productId },
             {
               onSuccess: () => {
-                setSheet(null);
-                onMoved(productId);
+                setTarget(null);
+                // Tout est parti : on suit les ingrédients vers leur nouveau produit.
+                if (moved.length === g.uses.length) onMoved(productId);
               },
             },
-          )
-        }
+          );
+        }}
       />
     </div>
   );

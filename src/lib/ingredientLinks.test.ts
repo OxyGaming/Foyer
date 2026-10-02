@@ -39,4 +39,10 @@ describe("liens ingrédients ↔ stock", () => {
     expect(oignon.uses[0].unitMismatch).toBe(true);
     expect([...oignon.issues].sort()).toEqual(["missing", "units"]);
   });
+
+  it("repère un ingrédient relié à un produit d'un autre nom", () => {
+    const beurre = groupIngredients([recipe("Crêpes", [{ name: "Lait", productId: "beurre", quantity: 500, unit: "ml", alternatives: [] }])], [product("beurre", "Beurre", "g", 0)])[0];
+    expect(beurre.aliases).toEqual(["Lait"]);
+    expect(beurre.issues.has("names")).toBe(true);
+  });
 });

@@ -17,7 +17,7 @@ export type IngredientUse = {
   unitMismatch: boolean;
 };
 
-export type LinkIssue = "unlinked" | "units" | "missing" | "variants";
+export type LinkIssue = "unlinked" | "names" | "units" | "missing" | "variants";
 
 export type LinkGroup = {
   key: string;
@@ -69,6 +69,8 @@ export function groupIngredients(recipes: RecipeSummary[], products: Product[]):
     g.alternatives = [...new Set(g.uses.flatMap((u) => u.alternatives))];
     g.missing = !!g.product && !present(g.product) && !g.alternatives.some((a) => present(byId.get(a)));
     if (!g.product) g.issues.add("unlinked");
+    // Ingrédient relié à un produit d'un autre nom (« Lait » → Beurre) : souvent une erreur de lien.
+    if (g.aliases.length) g.issues.add("names");
     if (g.uses.some((u) => u.unitMismatch)) g.issues.add("units");
     if (g.missing) g.issues.add("missing");
     if (g.alternatives.length) g.issues.add("variants");
