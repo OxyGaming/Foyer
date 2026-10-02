@@ -1,7 +1,14 @@
 // Calcul des besoins du planning et de la consommation d'une recette.
 import { compatibleUnits, convertQty, isBasicUnit, roundForPurchase, unitDimension } from "./units";
 
-export type NeedsIngredient = { name: string; productId: string | null; quantity: number | null; unit: string | null };
+export type NeedsIngredient = {
+  name: string;
+  productId: string | null;
+  quantity: number | null;
+  unit: string | null;
+  /** Autres produits acceptés (« Pâtes » → tagliatelles, coquillettes). */
+  alternatives?: string[];
+};
 export type NeedsRecipe = { id: string; name: string; servings: number | null; ingredients: NeedsIngredient[] };
 /** `hasStockLine` : rangé quelque part, même sans quantité (« de la farine au placard »). */
 export type NeedsProduct = { id: string; name: string; unit: string | null; quantity: number | null; hasStockLine?: boolean };
@@ -28,6 +35,30 @@ export function servingsFactor(planned: number | null, recipe: number | null) {
   return planned && recipe ? planned / recipe : 1;
 }
 
+/** Il en reste, ou il est rangé sans quantité indiquée (on fait confiance). */
+export const isPresent = (p: NeedsProduct) => (p.quantity != null ? p.quantity > 0 : !!p.hasStockLine);
+
+/**
+ * Produit réellement utilisé pour un ingrédient qui accepte des variantes :
+ * le principal s'il suffit, sinon la première variante qui suffit, sinon la
+ * première présente (même en quantité insuffisante), sinon le principal — c'est
+ * lui qu'on achète. Chaque ingrédient est jugé sur le stock entier.
+ */
+export function chooseProduct<P extends NeedsProduct>(ing: NeedsIngredient, products: Map<string, P>, factor = 1): P | undefined {
+  const options = [ing.productId, ...(ing.alternatives ?? [])].flatMap((id) => {
+    const p = id ? products.get(id) : undefined;
+    return p ? [p] : [];
+  });
+  if (options.length <= 1) return options[0];
+  const covers = (p: P) => {
+    if (!isPresent(p)) return false;
+    if (ing.quantity == null || isBasicUnit(ing.unit) || p.quantity == null) return true;
+    const q = convertQty(ing.quantity * factor, ing.unit, p.unit);
+    return q == null || p.quantity + 1e-9 >= q;
+  };
+  return options.find(covers) ?? options.find(isPresent) ?? options[0];
+}
+
 export function computeNeeds(meals: NeedsMeal[], recipes: Map<string, NeedsRecipe>, products: Map<string, NeedsProduct>): Need[] {
   type Acc = { productId: string; unit: string | null; sum: number | null; recipes: Set<string> };
   const acc = new Map<string, Acc>();
@@ -38,7 +69,7 @@ export function computeNeeds(meals: NeedsMeal[], recipes: Map<string, NeedsRecip
     if (!recipe) continue;
     const factor = servingsFactor(meal.servings, recipe.servings);
     for (const ing of recipe.ingredients) {
-      const product = ing.productId ? products.get(ing.productId) : undefined;
+      const product = chooseProduct(ing, products, factor);
       if (!product) continue;
       // « 1 pincée de sel » : traité comme un ingrédient sans quantité, dans l'unité du stock.
       const basic = isBasicUnit(ing.unit);
@@ -67,7 +98,7 @@ export function computeNeeds(meals: NeedsMeal[], recipes: Map<string, NeedsRecip
     const stock = product.quantity != null ? convertQty(product.quantity, product.unit, a.unit) : null;
     // En stock : il en reste, ou il est rangé sans quantité indiquée (on fait
     // confiance, comme « Que puis-je cuisiner »).
-    const inStock = product.quantity != null ? product.quantity > 0 : !!product.hasStockLine;
+    const inStock = isPresent(product);
     let toBuy: number | null;
     if (a.sum != null && stock != null) {
       const raw = Math.max(0, a.sum - stock);
@@ -107,7 +138,7 @@ export function consumptionFor(recipe: NeedsRecipe, plannedServings: number | nu
   const factor = servingsFactor(plannedServings, recipe.servings);
   const byProduct = new Map<string, Consumption>();
   for (const ing of recipe.ingredients) {
-    const product = ing.productId ? products.get(ing.productId) : undefined;
+    const product = chooseProduct(ing, products, factor);
     if (!product || ing.quantity == null) continue;
     const q = convertQty(ing.quantity * factor, ing.unit, product.unit);
     if (q == null || q <= 0) continue;

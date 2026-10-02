@@ -458,3 +458,111 @@ describe("achats, prix et inventaire (phase 3)", () => {
     expect((await b.call("GET", "/purchases")).body).toHaveLength(0);
   });
 });
+
+describe("recettes en masse et liens ingrédients ↔ stock", () => {
+  let r: Client;
+  beforeAll(async () => {
+    r = await userWithHousehold("r@foyer.test", "Foyer R");
+  });
+
+  it("modifie et supprime plusieurs recettes d'un coup, le planning garde le nom", async () => {
+    const cat = (await r.call("POST", "/categories", { kind: "recipe", name: "Plat" })).body;
+    const quiche = (await r.call("POST", "/recipes", { name: "Quiche", ingredients: [{ name: "Œufs", quantity: 3 }] })).body;
+    const soupe = (await r.call("POST", "/recipes", { name: "Soupe", tags: ["hiver"] })).body;
+    const vieille = (await r.call("POST", "/recipes", { name: "Vieille recette" })).body;
+    await r.call("POST", "/plan", { date: "2026-10-05", meal: "dinner", recipeId: vieille.id });
+
+    const res = await r.call("POST", "/recipes/bulk", {
+      updates: [
+        { id: quiche.id, servings: 6, difficulty: 2, categoryIds: [cat.id], favorite: true },
+        { id: soupe.id, name: "Soupe de potiron", tags: ["hiver", "rapide"], prepMinutes: 10 },
+      ],
+      deletes: [vieille.id],
+    });
+    expect(res.status).toBe(200);
+    const byId = new Map(res.body.map((x: { id: string }) => [x.id, x]));
+    expect(byId.get(quiche.id)).toMatchObject({ servings: 6, difficulty: 2, categoryIds: [cat.id], favorite: true });
+    // Ingrédients non envoyés : pas touchés.
+    expect((byId.get(quiche.id) as { ingredients: unknown[] }).ingredients).toHaveLength(1);
+    expect(byId.get(soupe.id)).toMatchObject({ name: "Soupe de potiron", tags: ["hiver", "rapide"], prepMinutes: 10 });
+    expect(byId.has(vieille.id)).toBe(false);
+    const plan = (await r.call("GET", "/plan?from=2026-10-05&to=2026-10-05")).body;
+    expect(plan[0]).toMatchObject({ recipeId: null, title: "Vieille recette" });
+  });
+
+  it("refuse tout si une recette n'est pas du foyer", async () => {
+    const mine = (await r.call("POST", "/recipes", { name: "Gratin" })).body;
+    const theirs = (await b.call("POST", "/recipes", { name: "Autre foyer" })).body;
+    const res = await r.call("POST", "/recipes/bulk", { updates: [{ id: mine.id, name: "Gratin dauphinois" }], deletes: [theirs.id] });
+    expect(res.status).toBe(404);
+    expect((await r.call("GET", `/recipes/${mine.id}`)).body.name).toBe("Gratin");
+  });
+
+  it("relie des ingrédients à un autre produit, et le lien survit à l'enregistrement de la recette", async () => {
+    const tarte = (await r.call("POST", "/recipes", { name: "Tarte", ingredients: [{ name: "Crème", quantity: 20, unit: "cl" }] })).body;
+    const ing = tarte.ingredients[0];
+    const fraiche = (await r.call("POST", "/products", { name: "Crème fraîche épaisse", unit: "cl" })).body;
+    const res = await r.call("POST", "/recipes/ingredients/link", { ids: [ing.id], productId: fraiche.id });
+    expect(res.status).toBe(200);
+    expect(res.body.find((x: { id: string }) => x.id === tarte.id).ingredients[0]).toMatchObject({ id: ing.id, name: "Crème", productId: fraiche.id });
+    // Réenregistrée telle quelle depuis l'écran de modification : le lien est conservé.
+    const again = await r.call("PATCH", `/recipes/${tarte.id}`, { ingredients: [{ name: "Crème", productId: fraiche.id, quantity: 20, unit: "cl" }] });
+    expect(again.body.ingredients[0].productId).toBe(fraiche.id);
+
+    const theirs = (await b.call("POST", "/products", { name: "Crème B" })).body;
+    expect((await r.call("POST", "/recipes/ingredients/link", { ids: [again.body.ingredients[0].id], productId: theirs.id })).status).toBe(404);
+  });
+});
+
+describe("variantes acceptées d'un ingrédient", () => {
+  let v: Client;
+  beforeAll(async () => {
+    v = await userWithHousehold("v@foyer.test", "Foyer V");
+  });
+
+  it("enregistre, modifie en masse et suit les fusions de produits", async () => {
+    const tagl = (await v.call("POST", "/products", { name: "Tagliatelles", unit: "g", quantity: 500 })).body;
+    const coqu = (await v.call("POST", "/products", { name: "Coquillettes", unit: "g" })).body;
+    const theirs = (await b.call("POST", "/products", { name: "Penne B" })).body;
+    const r = await v.call("POST", "/recipes", {
+      name: "Pâtes au beurre",
+      ingredients: [{ name: "Pâtes", quantity: 250, unit: "g", alternatives: [tagl.id, theirs.id, tagl.id] }],
+    });
+    const ing = r.body.ingredients[0];
+    // Produit d'un autre foyer et doublon écartés.
+    expect(ing.alternatives).toEqual([tagl.id]);
+    expect((await v.call("GET", `/products/${tagl.id}`)).body.recipes.map((x: { id: string }) => x.id)).toEqual([r.body.id]);
+
+    const linked = await v.call("POST", "/recipes/ingredients/link", { ids: [ing.id], alternatives: [tagl.id, coqu.id, ing.productId] });
+    const after = linked.body.find((x: { id: string }) => x.id === r.body.id).ingredients[0];
+    // Le produit principal n'est pas sa propre variante.
+    expect(after).toMatchObject({ productId: ing.productId, alternatives: [tagl.id, coqu.id] });
+
+    const dup = (await v.call("POST", "/products", { name: "Coquillettes bio", unit: "g" })).body;
+    await v.call("POST", `/products/${coqu.id}/merge`, { intoId: dup.id });
+    expect((await v.call("GET", `/recipes/${r.body.id}`)).body.ingredients[0].alternatives).toEqual([tagl.id, dup.id]);
+  });
+});
+
+describe("ingrédients depuis l'édition en masse", () => {
+  let m: Client;
+  beforeAll(async () => {
+    m = await userWithHousehold("m@foyer.test", "Foyer M");
+  });
+
+  it("remplace les ingrédients, relie les nouveaux au stock et garde les précisions", async () => {
+    const r = (await m.call("POST", "/recipes", { name: "Omelette", ingredients: [{ name: "Œufs", quantity: 3, note: "bio" }] })).body;
+    const list = (await m.call("GET", "/recipes")).body;
+    const summary = list.find((x: { id: string }) => x.id === r.id);
+    expect(summary.ingredients[0]).toMatchObject({ name: "Œufs", note: "bio" });
+    const res = await m.call("POST", "/recipes/bulk", {
+      updates: [{ id: r.id, ingredients: [{ ...summary.ingredients[0], quantity: 4 }, { name: "Ciboulette", quantity: 1, unit: "c. à soupe" }] }],
+    });
+    expect(res.status).toBe(200);
+    const after = res.body.find((x: { id: string }) => x.id === r.id).ingredients;
+    expect(after).toHaveLength(2);
+    expect(after[0]).toMatchObject({ name: "Œufs", quantity: 4, note: "bio", productId: summary.ingredients[0].productId });
+    expect(after[1].productId).toBeTruthy();
+    expect((await m.call("GET", "/products")).body.some((p: { name: string }) => p.name === "Ciboulette")).toBe(true);
+  });
+});

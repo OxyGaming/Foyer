@@ -71,12 +71,14 @@ shoppingRoutes.post("/sync", async (c) => {
   });
   const recipeRows = await prisma.recipe.findMany({
     where: { householdId, id: { in: [...new Set(meals.map((m) => m.recipeId!))] } },
-    select: { id: true, name: true, servings: true, ingredients: { select: { name: true, productId: true, quantity: true, unit: true } } },
+    select: { id: true, name: true, servings: true, ingredients: { select: { name: true, productId: true, quantity: true, unit: true, alternatives: true } } },
   });
+  // Variantes acceptées : tableau JSON en base.
+  const recipesWithAlts = recipeRows.map((r) => ({ ...r, ingredients: r.ingredients.map((i) => ({ ...i, alternatives: JSON.parse(i.alternatives) as string[] })) }));
   const products = await productsWithStock(householdId);
   const needs = computeNeeds(
     meals.map((m) => ({ recipeId: m.recipeId, servings: m.servings, cooked: m.cookedAt != null })),
-    new Map<string, NeedsRecipe>(recipeRows.map((r) => [r.id, r])),
+    new Map<string, NeedsRecipe>(recipesWithAlts.map((r) => [r.id, r])),
     new Map<string, NeedsProduct>(products.map((p) => [p.id, p])),
   );
 

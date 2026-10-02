@@ -239,6 +239,41 @@ export function useSaveRecipe() {
   });
 }
 
+export type RecipeBulkUpdate = { id: string } & Omit<RecipeInput, "photoId" | "steps" | "notes" | "description">;
+
+/** Édition en masse des recettes : modifications et suppressions d'un coup (tout ou rien). */
+export function useBulkRecipes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { updates?: RecipeBulkUpdate[]; deletes?: string[] }) => api.post<RecipeSummary[]>("/recipes/bulk", body),
+    onSuccess: (list, { deletes }) => {
+      qc.setQueryData(keys.recipes, list);
+      for (const id of deletes ?? []) qc.removeQueries({ queryKey: keys.recipe(id) });
+      qc.invalidateQueries({ queryKey: keys.recipes, predicate: (q) => q.queryKey.length > 1 });
+      qc.invalidateQueries({ queryKey: keys.categories });
+      qc.invalidateQueries({ queryKey: ["plan"] });
+      // Des produits ont pu être créés à partir des nouveaux ingrédients.
+      qc.invalidateQueries({ queryKey: keys.products });
+    },
+    onError,
+  });
+}
+
+/** Relie des ingrédients de recettes à un produit du stock et/ou fixe leurs variantes acceptées. */
+export function useLinkIngredients() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { ids: string[]; productId?: string; alternatives?: string[] }) => api.post<RecipeSummary[]>("/recipes/ingredients/link", body),
+    onSuccess: (list) => {
+      qc.setQueryData(keys.recipes, list);
+      qc.invalidateQueries({ queryKey: keys.recipes, predicate: (q) => q.queryKey.length > 1 });
+      qc.invalidateQueries({ queryKey: keys.products, predicate: (q) => q.queryKey.length > 1 });
+      qc.invalidateQueries({ queryKey: ["shopping"] });
+    },
+    onError,
+  });
+}
+
 export function useImportRecipes() {
   const qc = useQueryClient();
   return useMutation({

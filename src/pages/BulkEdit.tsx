@@ -3,6 +3,7 @@ import { type KeyboardEvent, memo, useCallback, useEffect, useMemo, useRef, useS
 import { Link, useBlocker } from "react-router";
 import { stockStatus } from "../../shared/stock";
 import { matches } from "../../shared/text";
+import { FillHandle } from "@/components/FillHandle";
 import { EmptyState, NumberInput, PageHeader, PageLoader, Sheet, Spinner, StatusBadge, useConfirm } from "@/components/ui";
 import { formatQty, STOCK_UNIT_SUGGESTIONS } from "@/lib/format";
 import { type BulkUpdate, useBulkProducts, useCategories, useLocations, useProducts } from "@/lib/queries";
@@ -81,6 +82,8 @@ export function BulkEditPage() {
   const [onlyChanged, setOnlyChanged] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const tableRef = useRef<HTMLTableSectionElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
   const changedCount = Object.keys(edits).length;
@@ -153,6 +156,20 @@ export function BulkEditPage() {
     });
     // `edits` seulement pour le filtre « modifiés » : inutile de retrier à chaque frappe sinon.
   }, [products.data, q, catFilter, locFilter, onlyChanged, onlyChanged ? edits : null, sort, cats, locs]);
+
+  /** Poignée de recopie : la valeur (modifiée ou non) de la ligne source va sur les lignes visées. */
+  function onFill(c: number, from: number, to: number[]) {
+    const key = COLS[c];
+    const src = rows[from];
+    if (!key || !src) return;
+    const value = { ...original(src), ...edits[src.id] }[key];
+    for (const t of to) {
+      const p = rows[t];
+      // Quantité répartie sur plusieurs emplacements : non modifiable ici.
+      if (!p || (key === "quantity" && p.stock.length > 1)) continue;
+      setCell(p.id, key, value);
+    }
+  }
 
   const allSelected = rows.length > 0 && rows.every((p) => selected.has(p.id));
 
@@ -248,7 +265,7 @@ export function BulkEditPage() {
         <PageHeader
           back="/stock"
           title="Édition en masse"
-          subtitle={products.data ? `${rows.length} / ${products.data.length} produits · Entrée pour descendre, Ctrl+S pour enregistrer` : undefined}
+          subtitle={products.data ? `${rows.length} / ${products.data.length} produits · Entrée pour descendre, tirer le coin d'une cellule pour recopier, Ctrl+S pour enregistrer` : undefined}
           actions={
             <div className="flex items-center gap-2 pr-2">
               {dirty && (
@@ -305,12 +322,13 @@ export function BulkEditPage() {
           />
         )}
 
-        <div className="min-h-0 flex-1 overflow-auto border-t border-line">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto border-t border-line">
           {products.isPending ? (
             <PageLoader />
           ) : rows.length === 0 ? (
             <EmptyState icon="🔍" title="Aucun produit ne correspond" />
           ) : (
+            <div ref={gridRef} className="relative">
             <table className="w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
@@ -353,6 +371,8 @@ export function BulkEditPage() {
                 ))}
               </tbody>
             </table>
+            <FillHandle container={gridRef} scroller={scrollRef} onFill={onFill} />
+            </div>
           )}
         </div>
       </div>

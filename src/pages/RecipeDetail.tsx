@@ -1,19 +1,72 @@
-import { CalendarPlus, Camera, ChevronLeft, Copy, Heart, Minus, Pencil, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { CalendarPlus, Camera, ChevronLeft, ChevronRight, Copy, Heart, Minus, Pencil, Plus, ShoppingCart, Trash2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { chooseProduct } from "../../shared/needs";
 import { cookability } from "../../shared/cookable";
 import { stockMap, useAddMissingToShopping } from "@/lib/cookable";
 import { missingLabel } from "./Cookable";
 import { PlanRecipeSheet } from "@/components/MealSheets";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { roundQty } from "../../shared/stock";
 import { PageLoader, Spinner, Thumb, useConfirm } from "@/components/ui";
 import { DIFFICULTY, formatMinutes, formatQty } from "@/lib/format";
 import { uploadPhoto } from "@/lib/image";
-import { useCategories, useDeleteRecipe, useDuplicateRecipe, useProducts, useRecipe, useSaveRecipe, useToggleFavorite } from "@/lib/queries";
+import { api } from "@/lib/api";
+import { keys, useCategories, useDeleteRecipe, useDuplicateRecipe, useProducts, useRecipe, useRecipes, useSaveRecipe, useToggleFavorite } from "@/lib/queries";
+import { useSwipe } from "@/lib/swipe";
+import type { Recipe } from "@/lib/types";
 
+/** Fiche recette ; sur mobile, balayer passe à la recette précédente/suivante (ordre alphabétique). */
 export function RecipeDetailPage() {
   const { id = "" } = useParams();
+  const recipes = useRecipes();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const list = recipes.data ?? [];
+  const index = list.findIndex((r) => r.id === id);
+  const prev = index > 0 ? list[index - 1] : null;
+  const next = index >= 0 && index < list.length - 1 ? list[index + 1] : null;
+  const go = (to: { id: string } | null) =>
+    to
+      ? () => {
+          navigate(`/recettes/${to.id}`, { replace: true });
+          window.scrollTo(0, 0);
+        }
+      : null;
+  const swipe = useSwipe({ onPrev: go(prev), onNext: go(next) });
+
+  // Les voisines sont chargées d'avance : le balayage affiche tout de suite la recette.
+  useEffect(() => {
+    for (const r of [prev, next]) if (r) qc.prefetchQuery({ queryKey: keys.recipe(r.id), queryFn: () => api.get<Recipe>(`/recipes/${r.id}`) });
+  }, [prev, next, qc]);
+
+  return (
+    <div className="overflow-x-clip">
+      <div ref={swipe}>
+        <RecipeDetail key={id} id={id} />
+        {index >= 0 && list.length > 1 && (
+          <nav className="grid grid-cols-2 gap-2 px-4 pb-4" aria-label="Autres recettes">
+            {prev ? (
+              <button className="btn-ghost min-h-10 justify-start text-sm" onClick={go(prev)!}>
+                <ChevronLeft className="size-4 shrink-0" /> <span className="truncate">{prev.name || "Sans nom"}</span>
+              </button>
+            ) : (
+              <span />
+            )}
+            {next && (
+              <button className="btn-ghost min-h-10 justify-end text-sm" onClick={go(next)!}>
+                <span className="truncate">{next.name || "Sans nom"}</span> <ChevronRight className="size-4 shrink-0" />
+              </button>
+            )}
+          </nav>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecipeDetail({ id }: { id: string }) {
   const recipe = useRecipe(id);
   const categories = useCategories();
   const products = useProducts();
@@ -29,7 +82,7 @@ export function RecipeDetailPage() {
   const [done, setDone] = useState<Set<number>>(new Set());
   const [planning, setPlanning] = useState(false);
 
-  const stockByProduct = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
+  const stockByProduct = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, { ...p, hasStockLine: p.stock.length > 0 }])), [products.data]);
   const addMissing = useAddMissingToShopping();
 
   if (recipe.isPending) return <PageLoader />;
@@ -75,7 +128,6 @@ export function RecipeDetailPage() {
   async function onDelete() {
     if (!(await ask(`Supprimer « ${r.name || "cette recette"} » ?`, { message: "La recette, ses ingrédients et ses étapes seront supprimés. Les produits du stock ne sont pas touchés." }))) return;
     await del.mutateAsync(r.id);
-    toast.success("Recette supprimée");
     navigate("/recettes", { replace: true });
   }
 
@@ -148,8 +200,10 @@ export function RecipeDetailPage() {
           ) : (
             <ul className="card divide-y divide-line">
               {r.ingredients.map((i, idx) => {
-                const p = i.productId ? stockByProduct.get(i.productId) : undefined;
+                // Variantes acceptées : on montre celle qui sera utilisée (en stock de préférence).
+                const p = chooseProduct(i, stockByProduct, factor);
                 const inStock = p?.quantity != null && p.quantity > 0;
+                const alts = (i.alternatives ?? []).map((a) => stockByProduct.get(a)).filter((x) => !!x);
                 return (
                   <li key={i.id ?? idx} className="flex items-center gap-3 px-4 py-3">
                     <span className={`size-2 shrink-0 rounded-full ${inStock ? "bg-ok" : "bg-line"}`} title={inStock ? "En stock" : undefined} />
@@ -162,6 +216,11 @@ export function RecipeDetailPage() {
                         <span className="font-medium">{i.name}</span>
                       )}
                       {i.note && <span className="text-sm text-ink-3"> · {i.note}</span>}
+                      {alts.length > 0 && (
+                        <span className="block text-xs text-ink-3">
+                          {p && p.id !== i.productId ? `avec ${p.name} · ` : ""}ou {alts.map((a) => a.name).join(", ")}
+                        </span>
+                      )}
                     </span>
                     {(i.quantity != null || i.unit) && (
                       <span className="text-right font-semibold tabular-nums text-ink-2">{formatQty(i.quantity != null ? roundQty(i.quantity * factor) : null, i.unit)}</span>
@@ -180,7 +239,7 @@ export function RecipeDetailPage() {
                   <p>
                     <span className="font-semibold text-low">Il manque :</span> <span className="text-ink-2">{missingLabel(availability)}</span>
                   </p>
-                  <button className="btn-soft mt-2 min-h-9 w-full bg-surface text-sm" onClick={() => addMissing(availability.missing, r.name)}>
+                  <button className="btn-soft mt-2 min-h-9 w-full bg-surface text-sm" onClick={() => addMissing(availability.missing)}>
                     <ShoppingCart className="size-4" /> Ajouter les manquants aux courses
                   </button>
                 </>
@@ -234,7 +293,6 @@ export function RecipeDetailPage() {
             disabled={dup.isPending}
             onClick={async () => {
               const copy = await dup.mutateAsync(r.id);
-              toast.success("Recette dupliquée");
               navigate(`/recettes/${copy.id}/modifier`);
             }}
           >

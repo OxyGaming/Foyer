@@ -18,6 +18,7 @@ import { addDays, formatDayLong, formatDayMonth, isIsoDate, MEAL_LABEL, type Mea
 import { AddMealSheet, MealSheet, type Slot, useMealSlots } from "@/components/MealSheets";
 import { PageHeader, PageLoader, Thumb } from "@/components/ui";
 import { usePlan, useUpdateMeal } from "@/lib/planQueries";
+import { useSwipe } from "@/lib/swipe";
 import { useRecipes, useWeekStartDay } from "@/lib/queries";
 import type { MealPlanItem, RecipeSummary } from "@/lib/types";
 
@@ -154,6 +155,18 @@ export function PlanningPage() {
   }, [plan.isPending, weekFrom, today, firstDay]);
 
   const goWeek = (delta: number) => setParams({ semaine: addDays(weekFrom, delta * 7) }, { replace: true });
+  // Mobile : balayer d'une semaine à l'autre (pas pendant le déplacement d'un repas).
+  const swipe = useSwipe({
+    onPrev: () => {
+      goWeek(-1);
+      window.scrollTo(0, 0);
+    },
+    onNext: () => {
+      goWeek(1);
+      window.scrollTo(0, 0);
+    },
+    enabled: !dragging,
+  });
 
   function onDragStart(e: DragStartEvent) {
     setDragging((e.active.data.current as { item: MealPlanItem }).item);
@@ -203,7 +216,8 @@ export function PlanningPage() {
           </>
         }
       />
-      <div className="px-4">
+      <div className="overflow-x-clip">
+      <div ref={swipe} className="px-4">
         <div className="mb-3 flex items-center gap-2">
           <button className="icon-btn bg-surface-2" onClick={() => goWeek(-1)} aria-label="Semaine précédente">
             <ChevronLeft className="size-5" />
@@ -215,7 +229,9 @@ export function PlanningPage() {
             <ChevronRight className="size-5" />
           </button>
         </div>
-        <p className="mb-3 text-xs text-ink-3">Appui long sur un repas pour le glisser vers un autre jour, ou touchez-le pour « Déplacer vers… ».</p>
+        <p className="mb-3 text-xs text-ink-3">
+          Appui long sur un repas pour le glisser vers un autre jour, ou touchez-le pour « Déplacer vers… ».<span className="lg:hidden"> Balayez vers la gauche ou la droite pour changer de semaine.</span>
+        </p>
 
         {plan.isPending ? (
           <PageLoader />
@@ -256,6 +272,7 @@ export function PlanningPage() {
             <DragOverlay dropAnimation={null}>{dragging && <MealCardOverlay item={dragging} recipe={dragging.recipeId ? recipeMap.get(dragging.recipeId) : undefined} />}</DragOverlay>
           </DndContext>
         )}
+      </div>
       </div>
       <AddMealSheet slot={adding} onClose={() => setAdding(null)} />
       <MealSheet item={open} onClose={() => setOpen(null)} />

@@ -15,6 +15,8 @@ const ingredientInput = z.object({
   quantity: optNumber,
   unit: optUnit(),
   note: optText(200),
+  /** Autres produits acceptés à la place du produit principal. */
+  alternatives: z.array(z.string().min(1).max(64)).max(50).optional(),
 });
 
 const recipeFields = {
@@ -38,7 +40,7 @@ const recipeDetail = {
   id: true, name: true, description: true, servings: true, prepMinutes: true, cookMinutes: true, difficulty: true,
   notes: true, favorite: true, tags: true, photoId: true, createdAt: true, updatedAt: true,
   categories: { select: { categoryId: true } },
-  ingredients: { orderBy: { position: "asc" as const }, select: { id: true, name: true, productId: true, quantity: true, unit: true, note: true } },
+  ingredients: { orderBy: { position: "asc" as const }, select: { id: true, name: true, productId: true, quantity: true, unit: true, note: true, alternatives: true } },
   steps: { orderBy: { position: "asc" as const }, select: { id: true, text: true } },
 } as const;
 
@@ -51,9 +53,16 @@ function parseTags(raw: string): string[] {
   }
 }
 
-function present<T extends { tags: string; categories: { categoryId: string }[] }>(r: T) {
-  const { categories, tags, ...rest } = r;
-  return { ...rest, tags: parseTags(tags), categoryIds: categories.map((c) => c.categoryId) };
+type WithAlternatives<I> = Omit<I, "alternatives"> & { alternatives: string[] };
+
+function present<T extends { tags: string; categories: { categoryId: string }[]; ingredients: { alternatives: string }[] }>(r: T) {
+  const { categories, tags, ingredients, ...rest } = r;
+  return {
+    ...rest,
+    tags: parseTags(tags),
+    categoryIds: categories.map((c) => c.categoryId),
+    ingredients: ingredients.map((i) => ({ ...i, alternatives: parseTags(i.alternatives) }) as WithAlternatives<T["ingredients"][number]>),
+  };
 }
 
 async function loadRecipe(householdId: string, id: string) {
@@ -62,22 +71,23 @@ async function loadRecipe(householdId: string, id: string) {
   return present(r);
 }
 
-recipeRoutes.get("/", async (c) => {
+/** Liste des recettes (résumé, avec les ingrédients pour les filtres et le croisement avec le stock). */
+async function listRecipes(householdId: string) {
   const recipes = await prisma.recipe.findMany({
-    where: { householdId: c.var.householdId },
+    where: { householdId },
     orderBy: { name: "asc" },
     select: {
       id: true, name: true, description: true, photoId: true, favorite: true, tags: true, servings: true,
       prepMinutes: true, cookMinutes: true, difficulty: true, updatedAt: true,
       categories: { select: { categoryId: true } },
-      ingredients: { orderBy: { position: "asc" }, select: { name: true, productId: true, quantity: true, unit: true } },
+      ingredients: { orderBy: { position: "asc" }, select: { id: true, name: true, productId: true, quantity: true, unit: true, note: true, alternatives: true } },
       _count: { select: { steps: true } },
     },
   });
-  return c.json(
-    recipes.map(({ _count, ...r }) => ({ ...present(r), stepCount: _count.steps })),
-  );
-});
+  return recipes.map(({ _count, ...r }) => ({ ...present(r), stepCount: _count.steps }));
+}
+
+recipeRoutes.get("/", async (c) => c.json(await listRecipes(c.var.householdId)));
 
 recipeRoutes.get("/:id", async (c) => c.json(await loadRecipe(c.var.householdId, c.req.param("id"))));
 
@@ -92,6 +102,7 @@ async function resolveIngredients(tx: Tx, householdId: string, list: z.output<ty
   const ids = new Set(products.map((p) => p.id));
   const out = [];
   for (const [position, ing] of list.entries()) {
+    const { alternatives = [], ...rest } = ing;
     let productId = ing.productId && ids.has(ing.productId) ? ing.productId : null;
     if (!productId && ing.name) {
       const key = productKey(ing.name);
@@ -102,7 +113,9 @@ async function resolveIngredients(tx: Tx, householdId: string, list: z.output<ty
         byName.set(key, productId);
       }
     }
-    out.push({ ...ing, productId, position });
+    // Variantes : produits du foyer, sans le produit principal ni doublon.
+    const alts = [...new Set(alternatives)].filter((id) => ids.has(id) && id !== productId);
+    out.push({ ...rest, productId, position, alternatives: JSON.stringify(alts) });
   }
   return out;
 }
@@ -159,6 +172,71 @@ recipeRoutes.post("/import", async (c) => {
     { timeout: 60_000 },
   );
   return c.json({ count: ids.length, ids }, 201);
+});
+
+const bulkInput = z.object({
+  updates: z
+    .array(z.object({ id: z.string().min(1).max(64), ...recipeInput.omit({ photoId: true, steps: true }).partial().shape }))
+    .max(2000)
+    .default([]),
+  deletes: z.array(z.string().min(1).max(64)).max(2000).default([]),
+});
+
+/**
+ * Édition en masse (vue tableur / fiches à faire défiler) : informations générales
+ * et ingrédients des recettes (pas les étapes). Tout passe ou rien ; renvoie la liste à jour.
+ */
+recipeRoutes.post("/bulk", async (c) => {
+  const householdId = c.var.householdId;
+  const { updates, deletes } = await parseJson(c.req, bulkInput);
+  const ids = [...new Set([...updates.map((u) => u.id), ...deletes])];
+  const existing = await prisma.recipe.findMany({ where: { householdId, id: { in: ids } }, select: { id: true, name: true, photoId: true } });
+  if (existing.length !== ids.length) notFound("Recette");
+  const byId = new Map(existing.map((r) => [r.id, r]));
+
+  await prisma.$transaction(
+    async (tx) => {
+      for (const { id, ...fields } of updates) await writeRecipe(tx, householdId, id, fields);
+      for (const id of deletes) {
+        // Comme pour une suppression unitaire : le planning garde le nom du plat.
+        await tx.mealPlanItem.updateMany({ where: { recipeId: id, title: null }, data: { title: byId.get(id)!.name || "Recette supprimée" } });
+      }
+      if (deletes.length) await tx.recipe.deleteMany({ where: { householdId, id: { in: deletes } } });
+    },
+    { timeout: 60_000 },
+  );
+  for (const id of deletes) await releasePhoto(byId.get(id)!.photoId);
+  return c.json(await listRecipes(householdId));
+});
+
+/**
+ * Liens ingrédients ↔ stock, sur des ingrédients de n'importe quelles recettes du
+ * foyer : `productId` change le produit principal (rapprochement automatique
+ * erroné, ingrédient orphelin) ; `alternatives` remplace les variantes acceptées.
+ */
+recipeRoutes.post("/ingredients/link", async (c) => {
+  const householdId = c.var.householdId;
+  const { ids, productId, alternatives } = await parseJson(
+    c.req,
+    z.object({
+      ids: z.array(z.string().min(1).max(64)).min(1).max(2000),
+      productId: z.string().min(1).max(64).optional(),
+      alternatives: z.array(z.string().min(1).max(64)).max(50).optional(),
+    }),
+  );
+  const wanted = [...new Set([...(productId ? [productId] : []), ...(alternatives ?? [])])];
+  if ((await prisma.product.count({ where: { householdId, id: { in: wanted } } })) !== wanted.length) notFound("Produit");
+  const unique = [...new Set(ids)];
+  const rows = await prisma.recipeIngredient.findMany({ where: { id: { in: unique }, recipe: { householdId } }, select: { id: true, productId: true, alternatives: true } });
+  if (rows.length !== unique.length) notFound("Ingrédient");
+  await prisma.$transaction(
+    rows.map((row) => {
+      const main = productId ?? row.productId;
+      const alts = (alternatives ?? parseTags(row.alternatives)).filter((id) => id !== main);
+      return prisma.recipeIngredient.update({ where: { id: row.id }, data: { productId: main, alternatives: JSON.stringify([...new Set(alts)]) } });
+    }),
+  );
+  return c.json(await listRecipes(householdId));
 });
 
 recipeRoutes.patch("/:id", async (c) => {

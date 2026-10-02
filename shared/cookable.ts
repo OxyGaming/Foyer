@@ -4,7 +4,7 @@
 // « pas assez » s'il en manque, manquant s'il n'y en a pas. Un ingrédient sans
 // quantité (« Sel ») est un basique : il ne bloque jamais la recette, on le
 // signale seulement s'il semble absent du stock.
-import { servingsFactor, type NeedsProduct, type NeedsRecipe } from "./needs";
+import { chooseProduct, servingsFactor, type NeedsProduct, type NeedsRecipe } from "./needs";
 import { convertQty, isBasicUnit, roundForPurchase } from "./units";
 
 export type Missing = {
@@ -35,8 +35,9 @@ export function cookability(recipe: NeedsRecipe, products: Map<string, StockProd
   // Plusieurs lignes du même produit (« 2 œufs » + « 1 œuf pour dorer ») : on additionne.
   const needs = new Map<string, { qty: number | null; unit: string | null; basic: boolean }>();
   for (const ing of recipe.ingredients) {
-    if (!ing.productId || !products.has(ing.productId)) continue;
-    const p = products.get(ing.productId)!;
+    // Variantes acceptées : on cuisine avec celle qui est en stock.
+    const p = chooseProduct(ing, products, factor);
+    if (!p) continue;
     const cur = needs.get(p.id);
     // « 1 pincée de sel », « poivre à goût » : des basiques, même chiffrés.
     if (ing.quantity == null || isBasicUnit(ing.unit)) {

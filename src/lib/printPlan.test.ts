@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildPrintPlan, markerFor } from "./printPlan";
 import type { MealPlanItem, RecipeSummary } from "./types";
 
-const recipe = (id: string, servings: number | null, ingredients: RecipeSummary["ingredients"]): RecipeSummary => ({
+type Ing = Omit<RecipeSummary["ingredients"][number], "id" | "note" | "alternatives">;
+const recipe = (id: string, servings: number | null, ingredients: Ing[]): RecipeSummary => ({
   id, name: id, favorite: false, description: null, photoId: null, tags: [], servings, prepMinutes: null, cookMinutes: null,
-  difficulty: null, updatedAt: "", categoryIds: [], ingredients, stepCount: 0,
+  difficulty: null, updatedAt: "", categoryIds: [], ingredients: ingredients.map((i, n) => ({ ...i, id: `${id}-${n}`, note: null, alternatives: [] })), stepCount: 0,
 });
 const meal = (id: string, date: string, m: MealPlanItem["meal"], recipeId: string | null, extra: Partial<MealPlanItem> = {}): MealPlanItem => ({
   id, date, meal: m, position: 0, recipeId, title: null, servings: null, note: null, cookedAt: null, ...extra,

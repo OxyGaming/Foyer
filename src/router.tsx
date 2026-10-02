@@ -16,6 +16,7 @@ const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, n
 const BulkEditPage = page(() => import("./pages/BulkEdit"), "BulkEditPage");
 const CookablePage = page(() => import("./pages/Cookable"), "CookablePage");
 const DuplicatesPage = page(() => import("./pages/Duplicates"), "DuplicatesPage");
+const IngredientLinksPage = page(() => import("./pages/IngredientLinks"), "IngredientLinksPage");
 const InventoryPage = page(() => import("./pages/Inventory"), "InventoryPage");
 const SpendingPage = page(() => import("./pages/Spending"), "SpendingPage");
 const StatsPage = page(() => import("./pages/Stats"), "StatsPage");
@@ -24,6 +25,7 @@ const PlanningPage = page(() => import("./pages/Planning"), "PlanningPage");
 const PlanningPrintPage = page(() => import("./pages/PlanningPrint"), "PlanningPrintPage");
 const ProductDetailPage = page(() => import("./pages/ProductDetail"), "ProductDetailPage");
 const ProductEditPage = page(() => import("./pages/ProductEdit"), "ProductEditPage");
+const RecipeBulkEditPage = page(() => import("./pages/RecipeBulkEdit"), "RecipeBulkEditPage");
 const RecipeDetailPage = page(() => import("./pages/RecipeDetail"), "RecipeDetailPage");
 const RecipeEditPage = page(() => import("./pages/RecipeEdit"), "RecipeEditPage");
 const RecipeImportPage = page(() => import("./pages/RecipeImport"), "RecipeImportPage");
@@ -94,6 +96,23 @@ export const router = createBrowserRouter([
         element: (
           <Suspense fallback={<PageLoader />}>
             <BulkEditPage />
+          </Suspense>
+        ),
+      },
+      // Pleine largeur aussi : tableau sur PC, fiches à faire défiler sur mobile.
+      {
+        path: "/recettes/tableur",
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <RecipeBulkEditPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "/recettes/ingredients",
+        element: (
+          <Suspense fallback={<PageLoader />}>
+            <IngredientLinksPage />
           </Suspense>
         ),
       },

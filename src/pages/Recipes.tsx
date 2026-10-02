@@ -1,4 +1,4 @@
-import { ChefHat, ChevronRight, ClipboardPaste, Clock, Heart, Plus, Search } from "lucide-react";
+import { ChefHat, ChevronRight, ClipboardPaste, Clock, Heart, Link2, Plus, Search, Table } from "lucide-react";
 import { type FormEvent, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { matches } from "../../shared/text";
@@ -115,6 +115,16 @@ export function RecipesPage() {
             </span>
             <ChevronRight className="size-5 text-ink-3" />
           </Link>
+        )}
+        {(recipes.data?.length ?? 0) > 0 && (
+          <div className="grid grid-cols-2 gap-2">
+            <Link to="/recettes/tableur" className="btn-soft min-h-10 text-sm">
+              <Table className="size-4" /> Édition en masse
+            </Link>
+            <Link to="/recettes/ingredients" className="btn-soft min-h-10 text-sm">
+              <Link2 className="size-4" /> Ingrédients ↔ stock
+            </Link>
+          </div>
         )}
         {(recipes.data?.length ?? 0) > 0 && (
           <>

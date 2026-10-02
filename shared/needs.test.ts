@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeNeeds, consumptionFor, type NeedsProduct, type NeedsRecipe } from "./needs";
+import { chooseProduct, computeNeeds, consumptionFor, type NeedsProduct, type NeedsRecipe } from "./needs";
 import { convertQty, readableQty, roundForPurchase, unitDimension } from "./units";
 
 const products = (list: NeedsProduct[]) => new Map(list.map((p) => [p.id, p]));
@@ -154,5 +154,30 @@ describe("consumptionFor", () => {
       { productId: "oeufs", name: "Œufs", quantity: 6, unit: null },
       { productId: "lait", name: "Lait", quantity: 1, unit: "L" },
     ]);
+  });
+});
+
+describe("variantes acceptées (« Pâtes » → tagliatelles, coquillettes)", () => {
+  const prod = (id: string, quantity: number | null, unit: string | null = "g", hasStockLine = quantity != null) => ({ id, name: id, unit, quantity, hasStockLine });
+  const map = (...ps: ReturnType<typeof prod>[]) => new Map(ps.map((p) => [p.id, p]));
+  const pates = { name: "Pâtes", productId: "pates", quantity: 250, unit: "g", alternatives: ["tagliatelles", "coquillettes"] };
+
+  it("prend le principal s'il suffit, sinon la première variante qui suffit", () => {
+    expect(chooseProduct(pates, map(prod("pates", 500), prod("tagliatelles", 500)))?.id).toBe("pates");
+    expect(chooseProduct(pates, map(prod("pates", 0), prod("tagliatelles", 100), prod("coquillettes", 0.3, "kg")))?.id).toBe("coquillettes");
+  });
+
+  it("à défaut, une variante présente même insuffisante, sinon le principal (à acheter)", () => {
+    expect(chooseProduct(pates, map(prod("pates", 0), prod("tagliatelles", 100), prod("coquillettes", 0)))?.id).toBe("tagliatelles");
+    expect(chooseProduct(pates, map(prod("pates", 0), prod("tagliatelles", 0)))?.id).toBe("pates");
+    // Un produit hors des variantes (pâtes fourrées) n'est jamais pris.
+    expect(chooseProduct(pates, map(prod("pates", 0), prod("raviolis", 1000)))?.id).toBe("pates");
+  });
+
+  it("les besoins du planning portent sur la variante en stock", () => {
+    const recipes = new Map([["r", { id: "r", name: "Pâtes au beurre", servings: 2, ingredients: [pates] }]]);
+    const needs = computeNeeds([{ recipeId: "r", servings: 4, cooked: false }], recipes, map(prod("pates", 0), prod("tagliatelles", 600)));
+    expect(needs).toHaveLength(1);
+    expect(needs[0]).toMatchObject({ productId: "tagliatelles", needed: 500, toBuy: 0, covered: true });
   });
 });

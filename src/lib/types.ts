@@ -77,6 +77,8 @@ export type Ingredient = {
   quantity: number | null;
   unit: string | null;
   note: string | null;
+  /** Autres produits acceptés à la place de productId (« Pâtes » → tagliatelles, coquillettes). */
+  alternatives?: string[];
 };
 
 export type RecipeSummary = {
@@ -92,7 +94,7 @@ export type RecipeSummary = {
   difficulty: number | null;
   updatedAt: string;
   categoryIds: string[];
-  ingredients: { name: string; productId: string | null; quantity: number | null; unit: string | null }[];
+  ingredients: { id: string; name: string; productId: string | null; quantity: number | null; unit: string | null; note: string | null; alternatives: string[] }[];
   stepCount: number;
 };
 

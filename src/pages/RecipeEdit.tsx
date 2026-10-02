@@ -1,17 +1,13 @@
-import { ArrowDown, ArrowUp, ClipboardList, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
-import { toast } from "sonner";
+import { type IngredientRow, IngredientsEditor, ingredientsInput, newKey, toIngredientRows } from "@/components/IngredientsEditor";
 import { PhotoPicker } from "@/components/PhotoPicker";
-import { Field, NumberInput, PageHeader, PageLoader, Sheet, Spinner } from "@/components/ui";
-import { UNIT_SUGGESTIONS } from "@/lib/format";
-import { parseIngredientLines } from "@/lib/ingredients";
+import { Field, NumberInput, PageHeader, PageLoader, Spinner } from "@/components/ui";
 import { useCategories, useProducts, useRecipe, useSaveRecipe } from "@/lib/queries";
-import type { Ingredient, Recipe, RecipeInput } from "@/lib/types";
+import type { Recipe, RecipeInput } from "@/lib/types";
 
-type Row = Omit<Ingredient, "id"> & { key: string };
 type StepRow = { key: string; text: string };
-const newKey = () => Math.random().toString(36).slice(2);
 
 type Draft = {
   name: string;
@@ -23,7 +19,7 @@ type Draft = {
   difficulty: number | null;
   categoryIds: string[];
   tags: string[];
-  ingredients: Row[];
+  ingredients: IngredientRow[];
   steps: StepRow[];
   notes: string;
 };
@@ -39,7 +35,7 @@ function toDraft(r?: Recipe, name = ""): Draft {
     difficulty: r?.difficulty ?? null,
     categoryIds: r?.categoryIds ?? [],
     tags: r?.tags ?? [],
-    ingredients: (r?.ingredients ?? []).map(({ id: _id, ...i }) => ({ ...i, key: newKey() })),
+    ingredients: toIngredientRows(r?.ingredients ?? []),
     steps: (r?.steps ?? []).map((s) => ({ key: newKey(), text: s.text })),
     notes: r?.notes ?? "",
   };
@@ -64,7 +60,6 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
   const location = useLocation();
   const [d, setD] = useState<Draft>(() => toDraft(recipe, (location.state as { name?: string } | null)?.name));
   const [tagText, setTagText] = useState("");
-  const [paste, setPaste] = useState<string | null>(null);
   const categories = useCategories();
   const products = useProducts();
   const save = useSaveRecipe();
@@ -83,17 +78,6 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
     setTagText("");
   }
 
-  function updateRow(key: string, patch: Partial<Row>) {
-    set("ingredients", d.ingredients.map((r) => (r.key === key ? { ...r, ...patch } : r)));
-  }
-
-  function importLines() {
-    const rows = (paste ?? "").split("\n").flatMap(parseIngredientLines).map((x) => ({ ...x, key: newKey() }));
-    set("ingredients", [...d.ingredients.filter((r) => r.name || r.quantity != null), ...rows]);
-    setPaste(null);
-    if (rows.length) toast.success(`${rows.length} ingrédient(s) ajouté(s)`);
-  }
-
   async function submit(e: FormEvent) {
     e.preventDefault();
     const pendingTag = tagText.trim();
@@ -107,12 +91,11 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
       difficulty: d.difficulty,
       categoryIds: d.categoryIds,
       tags: pendingTag ? [...d.tags, pendingTag.replace(/^#/, "")] : d.tags,
-      ingredients: d.ingredients.map(({ key: _k, ...i }) => i).filter((i) => i.name.trim() || i.quantity != null),
+      ingredients: ingredientsInput(d.ingredients),
       steps: d.steps.map((s) => ({ text: s.text })).filter((s) => s.text.trim()),
       notes: d.notes,
     };
     const saved = await save.mutateAsync({ id: recipe?.id, data });
-    toast.success("Recette enregistrée");
     navigate(`/recettes/${saved.id}`, { replace: true });
   }
 
@@ -127,8 +110,6 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
           </button>
         }
       />
-      <datalist id="units">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist>
-      <datalist id="product-names">{(products.data ?? []).filter((p) => p.name).map((p) => <option key={p.id} value={p.name} />)}</datalist>
 
       <div className="space-y-6 px-4 pb-8">
         <Field label="Nom">{(fid) => <input id={fid} className="input text-lg font-semibold" placeholder="Ex. Tartiflette" value={d.name} onChange={(e) => set("name", e.target.value)} />}</Field>
@@ -199,47 +180,8 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
 
         {/* Ingrédients */}
         <section>
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-lg font-bold">Ingrédients</h2>
-            <button type="button" className="btn-ghost min-h-9 px-2 text-sm" onClick={() => setPaste("")}>
-              <ClipboardList className="size-4" /> Coller une liste
-            </button>
-          </div>
-          <div className="space-y-2">
-            {d.ingredients.map((row, idx) => (
-              <div key={row.key} className="card p-2">
-                <div className="flex gap-2">
-                  <input
-                    className="input flex-1 py-2.5"
-                    list="product-names"
-                    placeholder="Ingrédient"
-                    value={row.name}
-                    onChange={(e) => updateRow(row.key, { name: e.target.value, productId: null })}
-                    aria-label="Ingrédient"
-                  />
-                  <button type="button" className="icon-btn size-10" onClick={() => set("ingredients", d.ingredients.filter((r) => r.key !== row.key))} aria-label="Retirer l'ingrédient">
-                    <X className="size-4" />
-                  </button>
-                </div>
-                <div className="mt-2 flex gap-2">
-                  <NumberInput className="input w-20 py-2" value={row.quantity} onChange={(v) => updateRow(row.key, { quantity: v })} placeholder="Qté" />
-                  <input className="input w-24 py-2" list="units" placeholder="Unité" value={row.unit ?? ""} onChange={(e) => updateRow(row.key, { unit: e.target.value || null })} aria-label="Unité" />
-                  <input className="input flex-1 py-2" placeholder="Précision" value={row.note ?? ""} onChange={(e) => updateRow(row.key, { note: e.target.value || null })} aria-label="Précision" />
-                  <div className="flex flex-col">
-                    <button type="button" className="px-1 text-ink-3 disabled:opacity-30" disabled={idx === 0} onClick={() => set("ingredients", move(d.ingredients, idx, idx - 1))} aria-label="Monter">
-                      <ArrowUp className="size-4" />
-                    </button>
-                    <button type="button" className="px-1 text-ink-3 disabled:opacity-30" disabled={idx === d.ingredients.length - 1} onClick={() => set("ingredients", move(d.ingredients, idx, idx + 1))} aria-label="Descendre">
-                      <ArrowDown className="size-4" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
-            <button type="button" className="btn-soft w-full" onClick={() => set("ingredients", [...d.ingredients, { key: newKey(), name: "", productId: null, quantity: null, unit: null, note: null }])}>
-              <Plus className="size-4" /> Ajouter un ingrédient
-            </button>
-          </div>
+          <h2 className="mb-2 text-lg font-bold">Ingrédients</h2>
+          <IngredientsEditor rows={d.ingredients} onChange={(v) => set("ingredients", v)} products={products.data ?? []} />
         </section>
 
         {/* Étapes */}
@@ -281,14 +223,6 @@ function RecipeForm({ recipe }: { recipe?: Recipe }) {
           {save.isPending ? <Spinner className="text-brand-ink" /> : "Enregistrer la recette"}
         </button>
       </div>
-
-      <Sheet open={paste !== null} onClose={() => setPaste(null)} title="Coller une liste d'ingrédients">
-        <p className="mb-3 text-sm text-ink-2">Une ligne par ingrédient. Ex. « 500 ml de lait », « 3 œufs », « Sel ».</p>
-        <textarea className="input min-h-48 font-mono text-sm" autoFocus value={paste ?? ""} onChange={(e) => setPaste(e.target.value)} placeholder={"250 g de farine\n3 œufs\n500 ml de lait\n1 pincée de sel"} />
-        <button type="button" className="btn-primary mt-3 w-full" onClick={importLines}>
-          Ajouter à la recette
-        </button>
-      </Sheet>
     </form>
   );
 }

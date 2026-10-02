@@ -104,7 +104,8 @@ productRoutes.get("/:id", async (c) => {
       select: { id: true, type: true, delta: true, quantityAfter: true, note: true, createdAt: true, stockItem: { select: { locationId: true } }, userId: true },
     }),
     prisma.recipe.findMany({
-      where: { householdId, ingredients: { some: { productId: p.id } } },
+      // Ingrédient principal ou variante acceptée.
+      where: { householdId, ingredients: { some: { OR: [{ productId: p.id }, { alternatives: { contains: `"${p.id}"` } }] } } },
       select: { id: true, name: true, photoId: true },
       orderBy: { name: "asc" },
     }),
@@ -201,6 +202,12 @@ productRoutes.post("/:id/merge", async (c) => {
     await tx.stockMovement.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
     await tx.purchase.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
     await tx.recipeIngredient.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+    // Variantes acceptées (tableau JSON) : l'ancienne fiche est remplacée par la nouvelle.
+    const withAlt = await tx.recipeIngredient.findMany({ where: { alternatives: { contains: `"${source.id}"` } }, select: { id: true, productId: true, alternatives: true } });
+    for (const ing of withAlt) {
+      const alts = [...new Set((JSON.parse(ing.alternatives) as string[]).map((id) => (id === source.id ? target.id : id)))].filter((id) => id !== ing.productId);
+      await tx.recipeIngredient.update({ where: { id: ing.id }, data: { alternatives: JSON.stringify(alts) } });
+    }
     await tx.shoppingListItem.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
 
     const sameUnit = compatibleUnits(source.unit, target.unit);

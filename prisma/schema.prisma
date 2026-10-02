@@ -196,6 +196,9 @@ model RecipeIngredient {
   quantity  Float?
   unit      String?
   note      String?
+  /// Autres produits acceptés (tableau JSON d'ids) : « Pâtes » → tagliatelles, coquillettes, mais pas les raviolis.
+  /// Le stock de l'un d'eux suffit ; sinon c'est le produit principal (productId) qu'on achète.
+  alternatives String @default("[]")
   recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 
