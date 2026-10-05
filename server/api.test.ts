@@ -604,3 +604,32 @@ describe("import d'une facture de drive", () => {
     expect((await f.call("GET", "/products")).body.some((p: { name: string }) => p.name === "Pain")).toBe(false);
   });
 });
+
+describe("familles de produits", () => {
+  let fam: Client;
+  beforeAll(async () => {
+    fam = await userWithHousehold("famille@foyer.test", "Foyer famille");
+  });
+
+  it("regroupe sous un générique, refuse plus d'un niveau, et la liste de courses puise dans toute la famille", async () => {
+    const pates = (await fam.call("POST", "/products", { name: "Pâtes", unit: "g" })).body;
+    const spag = (await fam.call("POST", "/products", { name: "Spaghetti", unit: "g", quantity: 150 })).body;
+    const coqu = (await fam.call("POST", "/products", { name: "Coquillettes", unit: "kg", quantity: 0.15 })).body;
+    const bulk = await fam.call("POST", "/products/bulk", { updates: [{ id: spag.id, parentId: pates.id }, { id: coqu.id, parentId: pates.id }] });
+    expect(bulk.status).toBe(200);
+
+    // Un générique n'entre pas dans une famille ; on ne se range pas sous une déclinaison.
+    expect((await fam.call("PATCH", `/products/${pates.id}`, { parentId: spag.id })).status).toBe(400);
+    const other = (await fam.call("POST", "/products", { name: "Penne", unit: "g" })).body;
+    expect((await fam.call("PATCH", `/products/${other.id}`, { parentId: spag.id })).status).toBe(400);
+    // Le produit acheté en priorité fait partie de la famille.
+    expect((await fam.call("PATCH", `/products/${pates.id}`, { preferredId: other.id })).status).toBe(400);
+    expect((await fam.call("PATCH", `/products/${pates.id}`, { preferredId: coqu.id })).body.preferredId).toBe(coqu.id);
+
+    const recipe = (await fam.call("POST", "/recipes", { name: "Gratin", ingredients: [{ name: "Pâtes", productId: pates.id, quantity: 400, unit: "g" }] })).body;
+    await fam.call("POST", "/plan", { date: "2026-10-06", meal: "dinner", recipeId: recipe.id });
+    const items = (await fam.call("POST", "/shopping/sync", { from: "2026-10-05", to: "2026-10-11" })).body.items;
+    // 150 g + 0,15 kg en stock pour 400 g : 100 g de coquillettes (préférées), en kg.
+    expect(items).toEqual([expect.objectContaining({ productId: coqu.id, name: "Coquillettes", unit: "kg", quantity: 0.1, stockQty: 0.3 })]);
+  });
+});

@@ -41,7 +41,7 @@ async function listPayload(householdId: string) {
 async function productsWithStock(householdId: string) {
   const products = await prisma.product.findMany({
     where: { householdId },
-    select: { id: true, name: true, unit: true, minStock: true, targetStock: true, defaultLocationId: true, stockItems: { select: { quantity: true } } },
+    select: { id: true, name: true, unit: true, minStock: true, targetStock: true, defaultLocationId: true, parentId: true, preferredId: true, stockItems: { select: { quantity: true } } },
   });
   return products.map((p) => ({ ...p, quantity: totalQuantity(p.stockItems), hasStockLine: p.stockItems.length > 0 }));
 }

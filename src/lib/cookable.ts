@@ -9,7 +9,7 @@ import type { Product } from "./types";
 export type { Cookable, Missing };
 
 export function stockMap(products: Product[] | undefined): Map<string, StockProduct> {
-  return new Map((products ?? []).map((p) => [p.id, { id: p.id, name: p.name, unit: p.unit, quantity: p.quantity, hasStockLine: p.stock.length > 0 }]));
+  return new Map((products ?? []).map((p) => [p.id, { id: p.id, name: p.name, unit: p.unit, quantity: p.quantity, hasStockLine: p.stock.length > 0, parentId: p.parentId, preferredId: p.preferredId }]));
 }
 
 /** Toutes les recettes, classées par faisabilité avec le stock actuel. */

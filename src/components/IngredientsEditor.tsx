@@ -26,7 +26,7 @@ function move<T>(list: T[], from: number, to: number): T[] {
   return copy;
 }
 
-/** Liste d'ingrédients modifiable : quantité, unité, précision, ordre, variantes acceptées, collage d'une liste. */
+/** Liste d'ingrédients modifiable : quantité, unité, précision, ordre, remplaçants, collage d'une liste. */
 export function IngredientsEditor({ rows, onChange, products }: { rows: IngredientRow[]; onChange: (rows: IngredientRow[]) => void; products: Product[] }) {
   const [paste, setPaste] = useState<string | null>(null);
   const [altFor, setAltFor] = useState<string | null>(null);
@@ -34,6 +34,12 @@ export function IngredientsEditor({ rows, onChange, products }: { rows: Ingredie
   const unitsList = `${ids}-units`;
   const namesList = `${ids}-names`;
   const productName = useMemo(() => new Map(products.map((p) => [p.id, p.name])), [products]);
+  // Déclinaisons par générique : un ingrédient relié à « Pâtes » accepte déjà toute la famille.
+  const familySize = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of products) if (p.parentId) m.set(p.parentId, (m.get(p.parentId) ?? 0) + 1);
+    return m;
+  }, [products]);
   const altRow = rows.find((r) => r.key === altFor);
 
   const update = (key: string, patch: Partial<IngredientRow>) => onChange(rows.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -79,11 +85,14 @@ export function IngredientsEditor({ rows, onChange, products }: { rows: Ingredie
           {row.name.trim() && (
             <button type="button" className="mt-1.5 flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs text-ink-2 hover:bg-surface-2" onClick={() => setAltFor(row.key)}>
               <Shuffle className="size-3.5 shrink-0 text-ink-3" />
+              {row.productId && familySize.get(row.productId) ? (
+                <span className="shrink-0 font-medium text-brand">Toute la famille ({familySize.get(row.productId)}){row.alternatives?.length ? " · " : ""}</span>
+              ) : null}
               {row.alternatives?.length ? (
                 <span className="truncate">ou {row.alternatives.map((id) => productName.get(id) ?? "?").join(", ")}</span>
-              ) : (
-                <span className="text-ink-3">Variantes acceptées (ex. d'autres pâtes)…</span>
-              )}
+              ) : !(row.productId && familySize.get(row.productId)) ? (
+                <span className="text-ink-3">Remplaçants pour cette recette…</span>
+              ) : null}
             </button>
           )}
         </div>

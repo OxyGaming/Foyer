@@ -197,7 +197,8 @@ model RecipeIngredient {
   quantity  Float?
   unit      String?
   note      String?
-  /// Autres produits acceptés (tableau JSON d'ids) : « Pâtes » → tagliatelles, coquillettes, mais pas les raviolis.
+  /// Remplaçants propres à cette recette (tableau JSON d'ids). Le cas général passe
+  /// par les familles de produits (Product.parentId) ; ceci reste pour les exceptions.
   /// Le stock de l'un d'eux suffit ; sinon c'est le produit principal (productId) qu'on achète.
   alternatives String @default("[]")
   recipe    Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
@@ -232,9 +233,19 @@ model Product {
   brand             String?
   reference         String?
   notes             String?
+  /// Produit générique de la famille (« Spaghetti » → « Pâtes »). Un seul niveau :
+  /// un générique n'a pas de parent. Un ingrédient relié au générique accepte
+  /// n'importe quel produit de la famille ; relié à « Spaghetti », celui-là seulement.
+  parentId          String?
+  /// Sur un générique : la déclinaison achetée quand la famille manque (sinon le générique).
+  preferredId       String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   household         Household          @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  parent            Product?           @relation("ProductFamily", fields: [parentId], references: [id], onDelete: SetNull)
+  children          Product[]          @relation("ProductFamily")
+  preferred         Product?           @relation("ProductPreferred", fields: [preferredId], references: [id], onDelete: SetNull)
+  preferredBy       Product[]          @relation("ProductPreferred")
   photo             Photo?             @relation(fields: [photoId], references: [id], onDelete: SetNull)
   category          Category?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   defaultLocation   Location?          @relation(fields: [defaultLocationId], references: [id], onDelete: SetNull)
@@ -246,6 +257,7 @@ model Product {
   receiptLabels     ReceiptLabel[]
 
   @@index([householdId])
+  @@index([parentId])
 }
 
 /// Quantité d'un produit à un emplacement. quantity null = « présent, quantité inconnue ».

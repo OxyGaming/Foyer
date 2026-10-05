@@ -1,5 +1,5 @@
 import { Check, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { matches, productKey } from "../../shared/text";
 import { Sheet, StatusBadge } from "@/components/ui";
 import { formatQty } from "@/lib/format";
@@ -32,6 +32,9 @@ export function AlternativesSheet({
   value,
   onSave,
   busy,
+  title,
+  intro,
+  exclude,
 }: {
   open: boolean;
   onClose: () => void;
@@ -42,6 +45,11 @@ export function AlternativesSheet({
   value: string[];
   onSave: (ids: string[]) => void;
   busy?: boolean;
+  /** Réutilisation hors recettes (déclinaisons d'une famille…). */
+  title?: string;
+  intro?: ReactNode;
+  /** Produits à ne pas proposer. */
+  exclude?: (p: Product) => boolean;
 }) {
   const [picked, setPicked] = useState<string[]>(value);
   const [q, setQ] = useState("");
@@ -57,17 +65,23 @@ export function AlternativesSheet({
   const main = mainId ? products.find((p) => p.id === mainId) : undefined;
   const suggested = useMemo(() => suggestedAlternatives(products, name, mainId), [products, name, mainId]);
   const list = useMemo(() => {
-    const others = products.filter((p) => p.id !== mainId);
+    const others = products.filter((p) => p.id !== mainId && !exclude?.(p));
     if (q.trim()) return others.filter((p) => matches(p.name, q) || matches(p.brand, q));
     // Les variantes déjà choisies restent visibles, puis les suggestions.
     return others.filter((p) => picked.includes(p.id) || suggested.has(p.id) || all);
-  }, [products, mainId, q, picked, suggested, all]);
+  }, [products, mainId, q, picked, suggested, all, exclude]);
   const toggle = (id: string) => setPicked((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
 
   return (
-    <Sheet open={open} onClose={onClose} title={`Variantes acceptées · ${name || "ingrédient"}`}>
+    <Sheet open={open} onClose={onClose} title={title ?? `Remplaçants · ${name || "ingrédient"}`}>
       <p className="mb-3 text-sm text-ink-2">
-        Cochez les produits qui conviennent aussi{main ? <> à la place de « {main.name} »</> : null}. Le stock de l'un d'eux suffit pour cuisiner ; s'il n'y a rien, c'est {main ? "le produit principal" : "l'ingrédient"} qui part dans les courses.
+        {intro ?? (
+          <>
+            Pour cette recette seulement, cochez les produits qui conviennent aussi{main ? <> à la place de « {main.name} »</> : null}. Le stock de l'un d'eux suffit
+            pour cuisiner ; s'il n'y a rien, c'est {main ? "le produit principal" : "l'ingrédient"} qui part dans les courses. Pour un remplacement valable partout,
+            préférez une famille de produits (fiche du produit).
+          </>
+        )}
       </p>
       <label className="relative mb-2 block">
         <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" />

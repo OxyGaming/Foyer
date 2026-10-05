@@ -25,7 +25,8 @@ export default defineConfig({
         start_url: "/",
         scope: "/",
         display: "standalone",
-        orientation: "portrait",
+        // Rotation libre : le planning se lit en grille quand le téléphone est tourné.
+        orientation: "any",
         background_color: "#f7f4ef",
         theme_color: "#f7f4ef",
         icons: [

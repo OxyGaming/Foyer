@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Téléphone tourné : peu de hauteur, on resserre la barre de navigation et les aides. */
+@custom-variant short-landscape (@media (orientation: landscape) and (max-height: 500px));
+
 /* Palette chaude et sobre ; les couleurs vives sont réservées aux statuts. */
 :root {
   --bg: #f7f4ef;

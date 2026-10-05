@@ -59,6 +59,16 @@ describe("cookability", () => {
   });
 });
 
+describe("cookability et familles", () => {
+  it("un générique est disponible si la famille en a assez, toutes déclinaisons confondues", () => {
+    const r = recipe("gratin", [{ name: "Pâtes", productId: "pates", quantity: 250, unit: "g" }]);
+    const s = stock(prod("pates", 0, "g"), { ...prod("spaghetti", 150, "g"), parentId: "pates" }, { ...prod("coquillettes", 150, "g"), parentId: "pates" });
+    expect(cookability(r, s).complete).toBe(true);
+    const peu = stock(prod("pates", 0, "g"), { ...prod("spaghetti", 100, "g"), parentId: "pates" });
+    expect(cookability(r, peu).missing[0]).toMatchObject({ productId: "pates", toBuy: 150, short: true });
+  });
+});
+
 describe("rankCookable", () => {
   it("met les recettes réalisables en premier et ignore celles sans ingrédient suivi", () => {
     const s = stock(prod("poulet", 1, "kg"), prod("creme", 0, "L"), prod("sel", 1), prod("riz", 1, "kg"));

@@ -3,7 +3,7 @@ import { groupIngredients } from "./ingredientLinks";
 import type { Product, RecipeSummary } from "./types";
 
 const product = (id: string, name: string, unit: string | null, quantity: number | null): Product => ({
-  id, name, unit, quantity, photoId: null, categoryId: null, minStock: null, targetStock: null, defaultLocationId: null, brand: null, reference: null,
+  id, name, unit, quantity, photoId: null, categoryId: null, minStock: null, targetStock: null, defaultLocationId: null, parentId: null, preferredId: null, brand: null, reference: null,
   notes: null, createdAt: "", updatedAt: "", stock: quantity != null ? [{ id: `s-${id}`, locationId: null, quantity, updatedAt: "" }] : [], status: "none", toBuy: null, pricing: null,
 });
 const recipe = (id: string, ingredients: Omit<RecipeSummary["ingredients"][number], "id" | "note">[]): RecipeSummary => ({

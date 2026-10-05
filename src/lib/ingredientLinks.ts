@@ -28,7 +28,7 @@ export type LinkGroup = {
   aliases: string[];
   /** Union des variantes acceptées dans les recettes. */
   alternatives: string[];
-  /** Ni le produit ni aucune variante n'est en stock. */
+  /** Ni le produit, ni sa famille, ni aucun remplaçant n'est en stock. */
   missing: boolean;
   issues: Set<LinkIssue>;
 };
@@ -37,6 +37,7 @@ const present = (p: Product | undefined) => !!p && (p.quantity != null ? p.quant
 
 export function groupIngredients(recipes: RecipeSummary[], products: Product[]): LinkGroup[] {
   const byId = new Map(products.map((p) => [p.id, p]));
+  const childrenOf = (id: string) => products.filter((p) => p.parentId === id);
   const groups = new Map<string, LinkGroup>();
   for (const r of recipes) {
     for (const i of r.ingredients) {
@@ -67,7 +68,8 @@ export function groupIngredients(recipes: RecipeSummary[], products: Product[]):
     const own = productKey(g.name);
     g.aliases = [...new Set(g.uses.map((u) => u.name).filter((n) => n && productKey(n) !== own))];
     g.alternatives = [...new Set(g.uses.flatMap((u) => u.alternatives))];
-    g.missing = !!g.product && !present(g.product) && !g.alternatives.some((a) => present(byId.get(a)));
+    g.missing =
+      !!g.product && !present(g.product) && !childrenOf(g.product.id).some(present) && !g.alternatives.some((a) => present(byId.get(a)) || childrenOf(a).some(present));
     if (!g.product) g.issues.add("unlinked");
     // Ingrédient relié à un produit d'un autre nom (« Lait » → Beurre) : souvent une erreur de lien.
     if (g.aliases.length) g.issues.add("names");

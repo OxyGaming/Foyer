@@ -2,7 +2,7 @@ import { BookOpen, Check, ChefHat, Copy, Heart, MoveRight, Search, Trash2, Undo2
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { addDays, formatDayShort, MEAL_LABEL, type Meal, relativeDayLabel, todayIso, weekDays, weekStart } from "../../shared/dates";
-import { consumptionFor } from "../../shared/needs";
+import { consumptionFor, optionsFor } from "../../shared/needs";
 import { matches } from "../../shared/text";
 import { formatQty } from "@/lib/format";
 import { useCookable } from "@/lib/cookable";
@@ -306,7 +306,8 @@ function CookForm({ item, onDone }: { item: MealPlanItem; onDone: () => void }) 
     const state = rows[c.productId] ?? { on: p?.quantity != null && p.quantity > 0, qty: c.quantity };
     return { ...c, stock: p?.quantity ?? null, state };
   });
-  const skipped = (recipe.data?.ingredients ?? []).filter((i) => i.productId && !initial.some((c) => c.productId === i.productId));
+  // Ingrédients reliés dont aucun produit qui convient (famille, remplaçants) n'est décompté.
+  const skipped = (recipe.data?.ingredients ?? []).filter((i) => i.productId && !optionsFor(i, productMap).some((o) => initial.some((c) => c.productId === o.id)));
   const set = (id: string, s: { on: boolean; qty: number | null }) => setRows((r) => ({ ...r, [id]: s }));
 
   const submit = (withStock: boolean) => {

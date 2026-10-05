@@ -174,10 +174,50 @@ describe("variantes acceptées (« Pâtes » → tagliatelles, coquillettes)", (
     expect(chooseProduct(pates, map(prod("pates", 0), prod("raviolis", 1000)))?.id).toBe("pates");
   });
 
-  it("les besoins du planning portent sur la variante en stock", () => {
+  it("les besoins du planning sont couverts par la variante en stock", () => {
     const recipes = new Map([["r", { id: "r", name: "Pâtes au beurre", servings: 2, ingredients: [pates] }]]);
     const needs = computeNeeds([{ recipeId: "r", servings: 4, cooked: false }], recipes, map(prod("pates", 0), prod("tagliatelles", 600)));
     expect(needs).toHaveLength(1);
-    expect(needs[0]).toMatchObject({ productId: "tagliatelles", needed: 500, toBuy: 0, covered: true });
+    expect(needs[0]).toMatchObject({ productId: "pates", needed: 500, stock: 600, toBuy: 0, covered: true });
+  });
+});
+
+describe("familles de produits (« Pâtes » → spaghetti, coquillettes)", () => {
+  type P = NeedsProduct;
+  const prod = (id: string, quantity: number | null, extra: Partial<P> = {}): P => ({ id, name: id, unit: "g", quantity, hasStockLine: quantity != null, ...extra });
+  const family = (...ps: P[]) => new Map(ps.map((p) => [p.id, p]));
+  const pates = (stock: [number, number, number], extra: Partial<P> = {}) =>
+    family(prod("pates", stock[0], extra), prod("spaghetti", stock[1], { parentId: "pates" }), prod("coquillettes", stock[2], { parentId: "pates" }), prod("raviolis", 1000));
+  const r = (id: string, productId: string, quantity: number): NeedsRecipe => ({ id, name: id, servings: null, ingredients: [{ name: productId, productId, quantity, unit: "g" }] });
+  const plan = (...ids: string[]) => ids.map((recipeId) => ({ recipeId, servings: null, cooked: false }));
+
+  it("un générique accepte toute la famille et additionne les stocks", () => {
+    const needs = computeNeeds(plan("gratin"), recipes([r("gratin", "pates", 250)]), pates([0, 150, 150]));
+    expect(needs).toEqual([expect.objectContaining({ productId: "pates", needed: 250, stock: 300, toBuy: 0, covered: true })]);
+  });
+
+  it("une déclinaison précise n'accepte qu'elle-même", () => {
+    const needs = computeNeeds(plan("carbo"), recipes([r("carbo", "spaghetti", 250)]), pates([0, 100, 500]));
+    expect(needs[0]).toMatchObject({ productId: "spaghetti", stock: 100, toBuy: 150 });
+  });
+
+  it("ne compte pas deux fois le même stock (le précis se sert d'abord)", () => {
+    const needs = computeNeeds(plan("gratin", "carbo"), recipes([r("gratin", "pates", 250), r("carbo", "spaghetti", 250)]), pates([0, 300, 100]));
+    expect(needs.find((n) => n.key.startsWith("spaghetti"))).toMatchObject({ toBuy: 0 });
+    // Restent 50 g de spaghetti + 100 g de coquillettes pour 250 g : 100 g à acheter.
+    expect(needs.find((n) => n.key.startsWith("pates"))).toMatchObject({ stock: 150, toBuy: 100 });
+  });
+
+  it("achète la déclinaison préférée du générique", () => {
+    const needs = computeNeeds(plan("gratin"), recipes([r("gratin", "pates", 250)]), pates([0, 0, 0], { preferredId: "coquillettes" }));
+    expect(needs[0]).toMatchObject({ productId: "coquillettes", name: "coquillettes", toBuy: 250 });
+  });
+
+  it("cuisiner puise dans une seule déclinaison si elle suffit (la plus entamée), sinon dans plusieurs", () => {
+    expect(consumptionFor(r("gratin", "pates", 250), null, pates([0, 300, 1000]))).toEqual([{ productId: "spaghetti", name: "spaghetti", quantity: 250, unit: "g" }]);
+    expect(consumptionFor(r("gratin", "pates", 250), null, pates([0, 200, 100]))).toEqual([
+      { productId: "spaghetti", name: "spaghetti", quantity: 200, unit: "g" },
+      { productId: "coquillettes", name: "coquillettes", quantity: 50, unit: "g" },
+    ]);
   });
 });

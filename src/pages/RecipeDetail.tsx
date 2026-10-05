@@ -200,9 +200,9 @@ function RecipeDetail({ id }: { id: string }) {
           ) : (
             <ul className="card divide-y divide-line">
               {r.ingredients.map((i, idx) => {
-                // Variantes acceptées : on montre celle qui sera utilisée (en stock de préférence).
+                // Famille ou remplaçants : on montre le produit qui sera utilisé (en stock de préférence).
                 const p = chooseProduct(i, stockByProduct, factor);
-                const inStock = p?.quantity != null && p.quantity > 0;
+                const inStock = !!p && (p.quantity != null ? p.quantity > 0 : p.hasStockLine);
                 const alts = (i.alternatives ?? []).map((a) => stockByProduct.get(a)).filter((x) => !!x);
                 return (
                   <li key={i.id ?? idx} className="flex items-center gap-3 px-4 py-3">
@@ -216,9 +216,9 @@ function RecipeDetail({ id }: { id: string }) {
                         <span className="font-medium">{i.name}</span>
                       )}
                       {i.note && <span className="text-sm text-ink-3"> · {i.note}</span>}
-                      {alts.length > 0 && (
+                      {(alts.length > 0 || (p && p.id !== i.productId)) && (
                         <span className="block text-xs text-ink-3">
-                          {p && p.id !== i.productId ? `avec ${p.name} · ` : ""}ou {alts.map((a) => a.name).join(", ")}
+                          {[p && p.id !== i.productId ? `avec ${p.name}` : "", alts.length ? `ou ${alts.map((a) => a.name).join(", ")}` : ""].filter(Boolean).join(" · ")}
                         </span>
                       )}
                     </span>

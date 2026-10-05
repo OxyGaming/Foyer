@@ -110,7 +110,7 @@ export function useMergeProduct() {
   });
 }
 
-export type BulkUpdate = { id: string } & Omit<ProductInput, "photoId" | "locationId">;
+export type BulkUpdate = { id: string } & Omit<ProductInput, "photoId" | "locationId" | "preferredId">;
 
 /** Vue tableur : enregistre plusieurs modifications/suppressions d'un coup (tout ou rien). */
 export function useBulkProducts() {

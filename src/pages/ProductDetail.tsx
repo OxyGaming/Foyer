@@ -1,7 +1,8 @@
-import { ClipboardCheck, GitMerge, MapPin, Minus, MoveRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, ClipboardCheck, GitMerge, Search, MapPin, Minus, MoveRight, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { productKey } from "../../shared/text";
+import { matches, productKey } from "../../shared/text";
+import { FamilySection } from "@/components/FamilySection";
 import { PurchaseSection } from "@/components/PurchaseSection";
 import { NumberInput, PageHeader, PageLoader, Sheet, StatusBadge, Thumb, useConfirm } from "@/components/ui";
 import { stockSummary } from "@/lib/duplicates";
@@ -14,41 +15,61 @@ function MergeSheet({ product, others, initial, onClose }: { product: Product; o
   const merge = useMergeProduct();
   const navigate = useNavigate();
   const [otherId, setOtherId] = useState(initial);
+  const [q, setQ] = useState("");
   const other = others.find((o) => o.id === otherId);
+  const shown = q.trim() ? others.filter((o) => matches(o.name, q) || matches(o.brand, q) || matches(o.reference, q)) : others;
   // Par défaut on garde la fiche qui a du stock : c'est elle que l'on consulte.
   const [keepThis, setKeepThis] = useState(() => !other || product.stock.length >= other.stock.length);
-  if (!other) return null;
-  const keep = keepThis ? product : other;
-  const drop = keepThis ? other : product;
+  // Le produit choisi doit rester visible : pas de fusion avec une fiche masquée par la recherche.
+  const chosen = other && shown.includes(other) ? other : undefined;
+  const keep = keepThis || !chosen ? product : chosen;
+  const drop = keepThis || !chosen ? chosen : product;
   return (
     <form
       className="space-y-4"
       onSubmit={async (e) => {
         e.preventDefault();
+        if (!drop) return;
         await merge.mutateAsync({ id: drop.id, intoId: keep.id });
         onClose();
         if (keep.id !== product.id) navigate(`/produits/${keep.id}`, { replace: true });
       }}
     >
-      <select
-        className="input"
-        value={otherId}
-        onChange={(e) => {
-          const o = others.find((x) => x.id === e.target.value);
-          setOtherId(e.target.value);
-          setKeepThis(!o || product.stock.length >= o.stock.length);
-        }}
-        aria-label="Produit à fusionner"
-      >
-        {others.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name || "Sans nom"} — {stockSummary(o)}
-          </option>
-        ))}
-      </select>
+      <div>
+        <label className="relative mb-2 block">
+          <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-ink-3" />
+          <input className="input pl-10" type="search" placeholder="Chercher le produit à fusionner…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Chercher un produit" />
+        </label>
+        <ul className="max-h-[35dvh] divide-y divide-line overflow-y-auto rounded-xl border border-line">
+          {shown.length === 0 && <li className="p-4 text-center text-sm text-ink-3">Aucun produit ne correspond</li>}
+          {shown.map((o) => (
+            <li key={o.id}>
+              <button
+                type="button"
+                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left ${o.id === otherId ? "bg-brand-soft" : ""}`}
+                aria-pressed={o.id === otherId}
+                onClick={() => {
+                  setOtherId(o.id);
+                  setKeepThis(product.stock.length >= o.stock.length);
+                }}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{o.name || "Sans nom"}</span>
+                  <span className="block truncate text-xs text-ink-2">{stockSummary(o)}</span>
+                </span>
+                {o.id === otherId && <Check className="size-4 shrink-0 text-brand" />}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {!chosen || !drop ? (
+        <p className="text-sm text-ink-2">Choisissez dans la liste le produit à fusionner avec « {product.name || "Sans nom"} ».</p>
+      ) : (
+      <>
       <fieldset className="space-y-2">
         <legend className="mb-1 text-sm font-semibold">Fiche à garder</legend>
-        {[product, other].map((p) => (
+        {[product, chosen].map((p) => (
           <label key={p.id} className={`card flex items-center gap-3 p-3 ${keep.id === p.id ? "border-brand ring-1 ring-brand/30" : ""}`}>
             <input type="radio" className="size-4 accent-[var(--brand)]" checked={keep.id === p.id} onChange={() => setKeepThis(p.id === product.id)} />
             <span className="min-w-0 flex-1">
@@ -67,6 +88,8 @@ function MergeSheet({ product, others, initial, onClose }: { product: Product; o
       <button className="btn-primary w-full" disabled={merge.isPending}>
         <GitMerge className="size-4" /> Fusionner
       </button>
+      </>
+      )}
     </form>
   );
 }
@@ -257,6 +280,8 @@ export function ProductDetailPage() {
         )}
 
         <PurchaseSection product={p} />
+
+        {allProducts.data && <FamilySection product={allProducts.data.find((x) => x.id === p.id) ?? p} products={allProducts.data} />}
 
         {p.recipes.length > 0 && (
           <section>

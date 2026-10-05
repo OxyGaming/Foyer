@@ -23,6 +23,8 @@ const productFields = {
   brand: optText(80),
   reference: optText(80),
   notes: optText(4000),
+  parentId: optId,
+  preferredId: optId,
 };
 const productInput = z.object({
   ...productFields,
@@ -33,7 +35,7 @@ const productInput = z.object({
 
 const productSelect = {
   id: true, name: true, photoId: true, categoryId: true, unit: true, minStock: true, targetStock: true,
-  defaultLocationId: true, brand: true, reference: true, notes: true, createdAt: true, updatedAt: true,
+  defaultLocationId: true, brand: true, reference: true, notes: true, parentId: true, preferredId: true, createdAt: true, updatedAt: true,
   stockItems: { select: { id: true, locationId: true, quantity: true, updatedAt: true }, orderBy: { updatedAt: "asc" as const } },
   // Achats chiffrés : de quoi calculer coût moyen, dernier et meilleur prix.
   purchases: {
@@ -78,6 +80,31 @@ async function assertRefs(householdId: string, b: { categoryId?: string | null; 
   if (b.photoId !== undefined) await assertPhoto(householdId, b.photoId);
 }
 
+/**
+ * Familles sur un seul niveau : un générique n'a pas de parent, une déclinaison
+ * n'a pas de déclinaisons. `changes` donne le nouveau parent de chaque produit
+ * modifié ; la déclinaison préférée doit appartenir à la famille.
+ */
+async function assertFamilies(householdId: string, changes: { id: string | null; parentId?: string | null; preferredId?: string | null }[]) {
+  const all = await prisma.product.findMany({ where: { householdId }, select: { id: true, name: true, parentId: true, preferredId: true } });
+  const parent = new Map(all.map((p) => [p.id, p.parentId]));
+  const names = new Map(all.map((p) => [p.id, p.name || "Sans nom"]));
+  for (const c of changes) {
+    if (c.parentId === undefined) continue;
+    if (c.parentId && !parent.has(c.parentId)) throw new HttpError(400, "Produit générique inconnu");
+    if (c.parentId && c.parentId === c.id) throw new HttpError(400, "Un produit ne peut pas être sa propre famille");
+    parent.set(c.id ?? "_new", c.parentId);
+  }
+  const hasChildren = new Set([...parent.values()].filter((v): v is string => !!v));
+  for (const [id, pid] of parent) {
+    if (pid && parent.get(pid)) throw new HttpError(400, `« ${names.get(pid)} » appartient déjà à une famille : choisissez son générique.`);
+    if (pid && hasChildren.has(id)) throw new HttpError(400, `« ${names.get(id) ?? "Ce produit"} » est un générique : il ne peut pas entrer dans une autre famille.`);
+  }
+  for (const c of changes) {
+    if (c.preferredId && parent.get(c.preferredId) !== (c.id ?? "_new")) throw new HttpError(400, "Le produit à acheter doit faire partie de la famille");
+  }
+}
+
 async function loadProduct(householdId: string, id: string) {
   const p = await prisma.product.findFirst({ where: { id, householdId }, select: productSelect });
   if (!p) notFound("Produit");
@@ -104,8 +131,11 @@ productRoutes.get("/:id", async (c) => {
       select: { id: true, type: true, delta: true, quantityAfter: true, note: true, createdAt: true, stockItem: { select: { locationId: true } }, userId: true },
     }),
     prisma.recipe.findMany({
-      // Ingrédient principal ou variante acceptée.
-      where: { householdId, ingredients: { some: { OR: [{ productId: p.id }, { alternatives: { contains: `"${p.id}"` } }] } } },
+      // Ingrédient principal, générique de sa famille ou remplaçant accepté.
+      where: {
+        householdId,
+        ingredients: { some: { OR: [{ productId: { in: [p.id, ...(p.parentId ? [p.parentId] : [])] } }, { alternatives: { contains: `"${p.id}"` } }] } },
+      },
       select: { id: true, name: true, photoId: true },
       orderBy: { name: "asc" },
     }),
@@ -137,7 +167,8 @@ productRoutes.post("/", async (c) => {
   const body = await parseJson(c.req, productInput);
   const householdId = c.var.householdId;
   await assertRefs(householdId, body);
-  const { quantity, locationId, ...fields } = body;
+  if (body.parentId) await assertFamilies(householdId, [{ id: null, parentId: body.parentId }]);
+  const { quantity, locationId, preferredId: _preferred, ...fields } = body;
   const { id, reused } = await prisma.$transaction(async (tx) => {
     const twin = await reusableTwin(tx, householdId, fields.name, fields.unit ?? null);
     let productId: string;
@@ -209,6 +240,10 @@ productRoutes.post("/:id/merge", async (c) => {
       await tx.recipeIngredient.update({ where: { id: ing.id }, data: { alternatives: JSON.stringify(alts) } });
     }
     await tx.shoppingListItem.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
+    // Famille : les déclinaisons du produit fusionné rejoignent le générique du produit gardé.
+    const familyHead = target.parentId ?? target.id;
+    await tx.product.updateMany({ where: { parentId: source.id, id: { not: familyHead } }, data: { parentId: familyHead } });
+    await tx.product.updateMany({ where: { preferredId: source.id }, data: { preferredId: target.id } });
     await tx.receiptLabel.updateMany({ where: { productId: source.id }, data: { productId: target.id } });
 
     const sameUnit = compatibleUnits(source.unit, target.unit);
@@ -216,6 +251,9 @@ productRoutes.post("/:id/merge", async (c) => {
     for (const k of ["photoId", "categoryId", "defaultLocationId", "brand", "reference", "notes"] as const) {
       if (target[k] == null && source[k] != null) fill[k] = source[k];
     }
+    // Le produit gardé hérite de la famille du fusionné s'il n'en a pas (et n'est pas lui-même un générique).
+    const targetIsHead = (await tx.product.count({ where: { parentId: target.id } })) > 0;
+    if (!target.parentId && source.parentId && source.parentId !== target.id && !targetIsHead) fill.parentId = source.parentId;
     // Seuils : seulement s'ils s'expriment dans la même unité.
     if (sameUnit) {
       for (const k of ["minStock", "targetStock"] as const) {
@@ -231,7 +269,7 @@ productRoutes.post("/:id/merge", async (c) => {
 
 const bulkInput = z.object({
   updates: z
-    .array(z.object({ id: z.string().min(1).max(64), ...z.object(productFields).omit({ photoId: true }).partial().shape, quantity: optNumber.optional() }))
+    .array(z.object({ id: z.string().min(1).max(64), ...z.object(productFields).omit({ photoId: true, preferredId: true }).partial().shape, quantity: optNumber.optional() }))
     .max(5000)
     .default([]),
   deletes: z.array(z.string().min(1).max(64)).max(5000).default([]),
@@ -257,6 +295,9 @@ productRoutes.post("/bulk", async (c) => {
   const locIds = [...new Set(updates.map((u) => u.defaultLocationId).filter((v): v is string => !!v))];
   if ((await prisma.category.count({ where: { householdId, id: { in: catIds } } })) !== catIds.length) throw new HttpError(400, "Catégorie inconnue");
   if ((await prisma.location.count({ where: { householdId, id: { in: locIds } } })) !== locIds.length) throw new HttpError(400, "Emplacement inconnu");
+  const deleted = new Set(deletes);
+  if (updates.some((u) => u.parentId && deleted.has(u.parentId))) throw new HttpError(400, "Le générique choisi est supprimé");
+  await assertFamilies(householdId, updates.filter((u) => u.parentId !== undefined).map((u) => ({ id: u.id, parentId: u.parentId })));
   for (const u of updates) {
     const p = byId.get(u.id)!;
     if (u.quantity !== undefined && p.stockItems.length > 1) {
@@ -287,6 +328,7 @@ productRoutes.patch("/:id", async (c) => {
   const existing = await loadProduct(householdId, c.req.param("id"));
   const body = await parseJson(c.req, z.object(productFields).partial());
   await assertRefs(householdId, body);
+  if (body.parentId !== undefined || body.preferredId !== undefined) await assertFamilies(householdId, [{ id: existing.id, parentId: body.parentId, preferredId: body.preferredId }]);
   await prisma.product.update({ where: { id: existing.id }, data: body });
   if (body.photoId !== undefined && body.photoId !== existing.photoId) await releasePhoto(existing.photoId);
   return c.json(present(await loadProduct(householdId, existing.id)));

@@ -11,10 +11,10 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { ChefHat, ChevronLeft, ChevronRight, GripVertical, Plus, Printer, ShoppingCart } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChefHat, ChevronLeft, ChevronRight, GripVertical, LayoutGrid, List, Plus, Printer, ShoppingCart } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useSearchParams } from "react-router";
-import { addDays, formatDayLong, formatDayMonth, isIsoDate, MEAL_LABEL, type Meal, relativeDayLabel, todayIso, weekDays, weekStart } from "../../shared/dates";
+import { addDays, formatDayLong, formatDayMonth, formatDayShort, isIsoDate, MEAL_LABEL, type Meal, relativeDayLabel, todayIso, weekDays, weekStart } from "../../shared/dates";
 import { AddMealSheet, MealSheet, type Slot, useMealSlots } from "@/components/MealSheets";
 import { PageHeader, PageLoader, Thumb } from "@/components/ui";
 import { usePlan, useUpdateMeal } from "@/lib/planQueries";
@@ -24,10 +24,59 @@ import type { MealPlanItem, RecipeSummary } from "@/lib/types";
 
 const slotId = (date: string, meal: string) => `slot|${date}|${meal}`;
 
-type CardProps = { item: MealPlanItem; recipe?: RecipeSummary };
+type CardProps = { item: MealPlanItem; recipe?: RecipeSummary; compact?: boolean };
 
-function MealCardBody({ item, recipe }: CardProps) {
+/**
+ * Ordinateur ou téléphone tourné : la semaine comme sur le PDF, jours en
+ * colonnes. Téléphone en portrait : jours en lignes, repas en colonnes.
+ */
+const WIDE = "(min-width: 768px), (orientation: landscape) and (min-width: 600px)";
+type View = "week" | "days" | "list";
+
+const safeGet = (k: string) => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const safeSet = (k: string, v: string | null) => {
+  try {
+    if (v == null) localStorage.removeItem(k);
+    else localStorage.setItem(k, v);
+  } catch {
+    /* stockage indisponible */
+  }
+};
+function useMediaQuery(query: string) {
+  return useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(query);
+      m.addEventListener("change", cb);
+      return () => m.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(query).matches,
+  );
+}
+
+function MealCardBody({ item, recipe, compact }: CardProps) {
   const name = recipe?.name || item.title || "Repas";
+  if (compact) {
+    return (
+      <span className="min-w-0 flex-1">
+        <span className={`line-clamp-2 text-xs leading-snug font-semibold ${item.cookedAt ? "text-ink-2 line-through decoration-ok/60" : ""}`}>
+          {!item.recipeId && "📝 "}
+          {name}
+        </span>
+        {(item.cookedAt || item.servings != null) && (
+          <span className="flex items-center gap-1.5 text-[11px] text-ink-3">
+            {item.cookedAt && <ChefHat className="size-3 text-ok" aria-label="cuisiné" />}
+            {item.servings != null && <span>👥 {item.servings}</span>}
+          </span>
+        )}
+      </span>
+    );
+  }
   return (
     <>
       {item.recipeId ? (
@@ -54,13 +103,13 @@ function MealCardBody({ item, recipe }: CardProps) {
 /** Aperçu flottant pendant le glisser (sans hooks dnd : l'original reste enregistré). */
 function MealCardOverlay(props: CardProps) {
   return (
-    <div className="flex rotate-1 items-center gap-2.5 rounded-xl border border-brand bg-surface p-1.5 pr-3 shadow-xl">
+    <div className={`flex rotate-1 items-center gap-2.5 rounded-xl border border-brand bg-surface shadow-xl ${props.compact ? "w-28 p-1.5" : "p-1.5 pr-3"}`}>
       <MealCardBody {...props} />
     </div>
   );
 }
 
-function MealCard({ item, recipe, onOpen }: CardProps & { onOpen: () => void }) {
+function MealCard({ item, recipe, compact, onOpen }: CardProps & { onOpen: () => void }) {
   const drag = useDraggable({ id: item.id, data: { item } });
   const drop = useDroppable({ id: `item|${item.id}`, data: { item } });
   const name = recipe?.name || item.title || "Repas";
@@ -70,7 +119,7 @@ function MealCard({ item, recipe, onOpen }: CardProps & { onOpen: () => void }) 
         drag.setNodeRef(el);
         drop.setNodeRef(el);
       }}
-      className={`flex items-center gap-2 rounded-xl border border-line bg-surface p-1.5 pr-1 transition ${drag.isDragging ? "opacity-30" : ""} ${drop.isOver && !drag.isDragging ? "border-brand ring-2 ring-brand/30" : ""}`}
+      className={`flex items-center gap-2 border border-line bg-surface transition ${compact ? "rounded-lg p-1.5" : "rounded-xl p-1.5 pr-1"} ${drag.isDragging ? "opacity-30" : ""} ${drop.isOver && !drag.isDragging ? "border-brand ring-2 ring-brand/30" : ""}`}
     >
       <button
         className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
@@ -80,11 +129,13 @@ function MealCard({ item, recipe, onOpen }: CardProps & { onOpen: () => void }) 
         aria-roledescription="repas déplaçable"
         aria-label={`${name}. Appui long pour déplacer, ou toucher pour les options.`}
       >
-        <MealCardBody item={item} recipe={recipe} />
+        <MealCardBody item={item} recipe={recipe} compact={compact} />
       </button>
-      <span className="touch-none p-1 text-ink-3" {...drag.listeners} aria-hidden>
-        <GripVertical className="size-4" />
-      </span>
+      {!compact && (
+        <span className="touch-none p-1 text-ink-3" {...drag.listeners} aria-hidden>
+          <GripVertical className="size-4" />
+        </span>
+      )}
     </div>
   );
 }
@@ -113,6 +164,54 @@ function SlotRow({ date, meal, items, recipes, onAdd, onOpen }: { date: string; 
   );
 }
 
+/** En-tête d'un jour dans la grille (« Lun. 5 oct. »), aujourd'hui mis en avant. */
+function DayLabel({ date, today, vertical }: { date: string; today: string; vertical?: boolean }) {
+  const [weekday, ...rest] = formatDayShort(date).split(" ");
+  return (
+    <div
+      className={`rounded-lg px-1 py-1 text-xs font-bold ${vertical ? "flex flex-col justify-center text-center leading-tight" : "text-center"} ${date === today ? "bg-brand text-brand-ink" : "text-ink-2"} ${date < today ? "opacity-75" : ""}`}
+    >
+      <span className="first-letter:uppercase">{weekday}</span>
+      {vertical ? <span className="font-medium">{rest.join(" ")}</span> : ` ${rest.join(" ")}`}
+    </div>
+  );
+}
+
+/** Case de la grille (un repas d'un jour) : dépôt, cartes compactes, ajout. */
+function GridCell({
+  date,
+  meal,
+  items,
+  recipes,
+  past,
+  onAdd,
+  onOpen,
+}: {
+  date: string;
+  meal: Meal;
+  items: MealPlanItem[];
+  recipes: Map<string, RecipeSummary>;
+  past: boolean;
+  onAdd: () => void;
+  onOpen: (i: MealPlanItem) => void;
+}) {
+  const drop = useDroppable({ id: slotId(date, meal), data: { date, meal } });
+  return (
+    <div ref={drop.setNodeRef} className={`flex min-h-16 flex-col gap-1 rounded-lg border p-1 transition ${drop.isOver ? "border-brand bg-brand-soft" : "border-line bg-surface-2/60"} ${past ? "opacity-75" : ""}`}>
+      {items.map((i) => (
+        <MealCard key={i.id} item={i} recipe={i.recipeId ? recipes.get(i.recipeId) : undefined} compact onOpen={() => onOpen(i)} />
+      ))}
+      <button
+        className={`flex items-center justify-center rounded-md text-brand active:bg-brand-soft ${items.length ? "min-h-7" : "min-h-12 flex-1"}`}
+        onClick={onAdd}
+        aria-label={`Ajouter au ${MEAL_LABEL[meal].toLowerCase()} du ${formatDayShort(date)}`}
+      >
+        <Plus className="size-4" />
+      </button>
+    </div>
+  );
+}
+
 export function PlanningPage() {
   const today = todayIso();
   const firstDay = useWeekStartDay();
@@ -127,6 +226,15 @@ export function PlanningPage() {
   const [adding, setAdding] = useState<Slot | null>(null);
   const [open, setOpen] = useState<MealPlanItem | null>(null);
   const [dragging, setDragging] = useState<MealPlanItem | null>(null);
+  // Grille par défaut (orientée selon l'écran) ; la vue liste reste au choix et est mémorisée.
+  const wide = useMediaQuery(WIDE);
+  const [asList, setAsList] = useState(() => safeGet("planning-view") === "list");
+  const view: View = asList ? "list" : wide ? "week" : "days";
+  const grid = view !== "list";
+  const toggleView = () => {
+    setAsList(!asList);
+    safeSet("planning-view", asList ? null : "list");
+  };
 
   const recipeMap = useMemo(() => new Map((recipes.data ?? []).map((r) => [r.id, r])), [recipes.data]);
   const bySlot = useMemo(() => {
@@ -149,10 +257,10 @@ export function PlanningPage() {
   // Semaine en cours : on amène directement sur aujourd'hui.
   const scrolled = useRef(false);
   useEffect(() => {
-    if (scrolled.current || plan.isPending || weekFrom !== weekStart(today, firstDay) || today === weekFrom) return;
+    if (grid || scrolled.current || plan.isPending || weekFrom !== weekStart(today, firstDay) || today === weekFrom) return;
     scrolled.current = true;
     document.getElementById(`day-${today}`)?.scrollIntoView({ block: "start" });
-  }, [plan.isPending, weekFrom, today, firstDay]);
+  }, [grid, plan.isPending, weekFrom, today, firstDay]);
 
   const goWeek = (delta: number) => setParams({ semaine: addDays(weekFrom, delta * 7) }, { replace: true });
   // Mobile : balayer d'une semaine à l'autre (pas pendant le déplacement d'un repas).
@@ -165,7 +273,8 @@ export function PlanningPage() {
       goWeek(1);
       window.scrollTo(0, 0);
     },
-    enabled: !dragging,
+    // Grille large : le glissement horizontal fait défiler les jours.
+    enabled: !dragging && view !== "week",
   });
 
   function onDragStart(e: DragStartEvent) {
@@ -197,6 +306,8 @@ export function PlanningPage() {
   }
 
   const planned = (plan.data ?? []).length;
+  // Grille : les repas affichés, plus ceux d'un créneau masqué qui ont quand même des repas cette semaine.
+  const gridMeals = (["breakfast", "lunch", "snack", "dinner"] as Meal[]).filter((m) => meals.includes(m) || (plan.data ?? []).some((i) => i.meal === m));
   const weekLabel = `${formatDayMonth(weekFrom)} – ${formatDayMonth(weekTo)}`;
   const isCurrent = weekFrom === weekStart(today, firstDay);
 
@@ -207,6 +318,9 @@ export function PlanningPage() {
         subtitle={`${weekLabel} · ${planned} repas`}
         actions={
           <>
+            <button className="icon-btn" onClick={toggleView} aria-label={grid ? "Afficher en liste" : "Afficher en grille"} title={grid ? "Vue liste" : "Vue grille (jours en colonnes)"}>
+              {grid ? <List className="size-5" /> : <LayoutGrid className="size-5" />}
+            </button>
             <Link to={`/planning/imprimer?semaine=${weekFrom}`} className="icon-btn" aria-label="Imprimer la semaine">
               <Printer className="size-5" />
             </Link>
@@ -216,7 +330,8 @@ export function PlanningPage() {
           </>
         }
       />
-      <div className="overflow-x-clip">
+      {/* Le rognage sert à l'animation du balayage ; la grille large, elle, déborde de la colonne. */}
+      <div className={view === "week" ? "" : "overflow-x-clip"}>
       <div ref={swipe} className="px-4">
         <div className="mb-3 flex items-center gap-2">
           <button className="icon-btn bg-surface-2" onClick={() => goWeek(-1)} aria-label="Semaine précédente">
@@ -229,14 +344,76 @@ export function PlanningPage() {
             <ChevronRight className="size-5" />
           </button>
         </div>
-        <p className="mb-3 text-xs text-ink-3">
-          Appui long sur un repas pour le glisser vers un autre jour, ou touchez-le pour « Déplacer vers… ».<span className="lg:hidden"> Balayez vers la gauche ou la droite pour changer de semaine.</span>
+        <p className="mb-3 text-xs text-ink-3 short-landscape:hidden">
+          Appui long sur un repas pour le glisser vers un autre jour, ou touchez-le pour « Déplacer vers… ».
+          {view === "week" ? (
+            <span className="md:hidden"> Faites défiler la grille pour voir toute la semaine.</span>
+          ) : (
+            <span className="lg:hidden"> Balayez vers la gauche ou la droite pour changer de semaine, ou tournez le téléphone pour voir les jours en colonnes.</span>
+          )}
         </p>
 
         {plan.isPending ? (
           <PageLoader />
         ) : (
           <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setDragging(null)}>
+            {view === "week" ? (
+              // Sur ordinateur, la grille déborde la colonne centrale pour profiter de la largeur de l'écran.
+              <div className="-mx-4 overflow-x-auto px-4 pb-2 lg:mx-[calc(50%-min(48vw,40rem))]">
+                <div className="grid min-w-[44rem] gap-1" style={{ gridTemplateColumns: "4rem repeat(7, minmax(0, 1fr))" }}>
+                  <div />
+                  {weekDays(weekFrom).map((d) => (
+                    <DayLabel key={d} date={d} today={today} />
+                  ))}
+                  {gridMeals.map((m) => (
+                    <div key={m} className="contents">
+                      <div className="pt-1.5 text-[11px] font-bold tracking-wide break-words text-ink-3 uppercase">{MEAL_LABEL[m]}</div>
+                      {weekDays(weekFrom).map((d) => (
+                        <GridCell
+                          key={d}
+                          date={d}
+                          meal={m}
+                          items={bySlot.get(slotId(d, m)) ?? []}
+                          recipes={recipeMap}
+                          past={d < today}
+                          onAdd={() => setAdding({ date: d, meal: m })}
+                          onOpen={setOpen}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : view === "days" ? (
+              // Téléphone en portrait : un jour par ligne, un repas par colonne.
+              <div className="-mx-4 overflow-x-auto px-4 pb-2">
+                <div className="grid gap-1" style={{ gridTemplateColumns: `3.5rem repeat(${gridMeals.length}, minmax(5.5rem, 1fr))` }}>
+                  <div />
+                  {gridMeals.map((m) => (
+                    <div key={m} className="px-1 pb-0.5 text-center text-[11px] font-bold tracking-wide text-ink-3 uppercase">
+                      {MEAL_LABEL[m]}
+                    </div>
+                  ))}
+                  {weekDays(weekFrom).map((d) => (
+                    <div key={d} className="contents">
+                      <DayLabel date={d} today={today} vertical />
+                      {gridMeals.map((m) => (
+                        <GridCell
+                          key={m}
+                          date={d}
+                          meal={m}
+                          items={bySlot.get(slotId(d, m)) ?? []}
+                          recipes={recipeMap}
+                          past={d < today}
+                          onAdd={() => setAdding({ date: d, meal: m })}
+                          onOpen={setOpen}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
             <div className="space-y-3">
               {weekDays(weekFrom).map((d) => {
                 const rel = relativeDayLabel(d, today);
@@ -269,7 +446,10 @@ export function PlanningPage() {
                 );
               })}
             </div>
-            <DragOverlay dropAnimation={null}>{dragging && <MealCardOverlay item={dragging} recipe={dragging.recipeId ? recipeMap.get(dragging.recipeId) : undefined} />}</DragOverlay>
+            )}
+            <DragOverlay dropAnimation={null}>
+              {dragging && <MealCardOverlay item={dragging} recipe={dragging.recipeId ? recipeMap.get(dragging.recipeId) : undefined} compact={grid} />}
+            </DragOverlay>
           </DndContext>
         )}
       </div>

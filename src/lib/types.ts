@@ -44,6 +44,10 @@ export type Product = {
   brand: string | null;
   reference: string | null;
   notes: string | null;
+  /** Générique de la famille (« Spaghetti » → « Pâtes ») ; null pour un produit seul ou un générique. */
+  parentId: string | null;
+  /** Sur un générique : déclinaison achetée quand la famille manque. */
+  preferredId: string | null;
   createdAt: string;
   updatedAt: string;
   stock: StockLine[];
@@ -132,6 +136,8 @@ export type ProductInput = Partial<{
   brand: string | null;
   reference: string | null;
   notes: string | null;
+  parentId: string | null;
+  preferredId: string | null;
   quantity: number | null;
   locationId: string | null;
 }>;

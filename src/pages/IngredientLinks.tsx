@@ -1,13 +1,14 @@
-import { AlertTriangle, ChevronLeft, ChevronRight, Link2, Search, Shuffle, Unlink } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, Layers, Link2, Search, Shuffle, Unlink } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { matches, productKey } from "../../shared/text";
 import { AlternativesSheet, ProductPickSheet } from "@/components/AlternativesSheet";
+import { FamilySection } from "@/components/FamilySection";
 import { Pager } from "@/components/Pager";
 import { Chips, EmptyState, PageHeader, PageLoader, StatusBadge, Thumb } from "@/components/ui";
 import { formatQty } from "@/lib/format";
 import { groupIngredients, type LinkGroup, type LinkIssue } from "@/lib/ingredientLinks";
-import { useLinkIngredients, useLocations, useProducts, useRecipes } from "@/lib/queries";
+import { useBulkProducts, useLinkIngredients, useLocations, useProducts, useRecipes } from "@/lib/queries";
 import { useSwipe } from "@/lib/swipe";
 import { pathLabel } from "@/lib/tree";
 import type { Location, Product } from "@/lib/types";
@@ -26,7 +27,7 @@ const stockLabel = (p: Product) => (p.quantity != null ? formatQty(p.quantity, p
 
 /**
  * Liens entre les ingrédients des recettes et les produits du stock : qui utilise
- * quoi, les variantes acceptées (« Pâtes » → tagliatelles, coquillettes) et ce qui
+ * quoi, les familles de produits (« Pâtes » → tagliatelles, coquillettes) et ce qui
  * cloche. PC : liste + détail côte à côte. Mobile : détail plein écran, balayer
  * pour passer d'un ingrédient à l'autre.
  */
@@ -150,6 +151,7 @@ function GroupIcon({ g }: { g: LinkGroup }) {
 
 function GroupDetail({ g, products, locations, onMoved }: { g: LinkGroup; products: Product[]; locations: Location[]; onMoved: (key: string) => void }) {
   const link = useLinkIngredients();
+  const bulk = useBulkProducts();
   const byId = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
   // Ingrédients visés par « Relier à… » : une ligne (bouton « Changer ») ou toutes.
   const [target, setTarget] = useState<{ ids: string[]; label: string } | null>(null);
@@ -157,6 +159,13 @@ function GroupDetail({ g, products, locations, onMoved }: { g: LinkGroup; produc
   const all = g.uses.map((u) => u.ingredientId);
   const p = g.product;
   const where = p ? [...new Set(p.stock.map((s) => (s.locationId ? pathLabel(locations, s.locationId) : null)).filter(Boolean))].join(", ") : "";
+  /** Remplaçants → déclinaisons du produit (valables pour toutes les recettes), puis on les retire des recettes. */
+  function toFamily() {
+    if (!p) return;
+    const heads = new Set(products.map((x) => x.parentId).filter(Boolean));
+    const ids = g.alternatives.filter((id) => id !== p.id && !heads.has(id));
+    bulk.mutate({ updates: ids.map((id) => ({ id, parentId: p.id })) }, { onSuccess: () => link.mutate({ ids: all, alternatives: [] }) });
+  }
   const unitName = (u: string | null) => (u && u !== "pièce" ? u : "pièces");
 
   return (
@@ -199,7 +208,7 @@ function GroupDetail({ g, products, locations, onMoved }: { g: LinkGroup; produc
             </button>
           )}
         </div>
-        <p className="mb-2 text-sm text-ink-2">{p ? <>Quand ces recettes sont cuisinées ou prévues, c'est le stock de « {p.name} » qui est vérifié et décompté.</> : "Ingrédients sans produit du stock."}</p>
+        <p className="mb-2 text-sm text-ink-2">{p ? <>Quand ces recettes sont cuisinées ou prévues, c'est le stock de « {p.name} »{products.some((x) => x.parentId === p.id) ? " et de ses déclinaisons" : ""} qui est vérifié et décompté.</> : "Ingrédients sans produit du stock."}</p>
         <ul className="card divide-y divide-line">
           {g.uses.map((u) => {
             const otherName = !!p && productKey(u.name) !== productKey(p.name);
@@ -237,42 +246,48 @@ function GroupDetail({ g, products, locations, onMoved }: { g: LinkGroup; produc
         </ul>
       </section>
 
-      {/* 3. Les produits qui peuvent le remplacer */}
+      {/* 3. La famille du produit, et les remplaçants propres à certaines recettes */}
+      {p && <FamilySection product={p} products={products} />}
       {p && (
         <section>
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-lg font-bold">Produits acceptés à la place</h2>
+            <h2 className="text-lg font-bold">Remplaçants propres aux recettes</h2>
             <button className="btn-ghost min-h-9 px-2 text-sm" onClick={() => setVariants(true)}>
               <Shuffle className="size-4" /> Modifier
             </button>
           </div>
-          <p className="mb-2 text-sm text-ink-2">
-            Si « {p.name} » manque, ces produits conviennent aussi dans ces recettes. Ex. pour des pâtes : tagliatelles ou coquillettes, mais pas des raviolis.
-          </p>
           {g.alternatives.length === 0 ? (
-            <p className="card p-3 text-sm text-ink-3">Aucun : seul « {p.name} » convient.</p>
+            <p className="text-sm text-ink-3">Aucun : la famille du produit suffit en général.</p>
           ) : (
-            <ul className="card divide-y divide-line">
-              {g.alternatives.map((id) => {
-                const alt = byId.get(id);
-                if (!alt) return null;
-                const n = g.uses.filter((u) => u.alternatives.includes(id)).length;
-                return (
-                  <li key={id} className="flex items-center gap-3 px-3 py-2.5">
-                    <Link to={`/produits/${id}`} className="min-w-0 flex-1 truncate font-medium hover:text-brand">
-                      {alt.name}
-                    </Link>
-                    {n < g.uses.length && (
-                      <span className="text-xs text-ink-3">
-                        {n} recette{n > 1 ? "s" : ""} sur {g.uses.length}
-                      </span>
-                    )}
-                    <span className="text-sm text-ink-2 tabular-nums">{stockLabel(alt)}</span>
-                    <StatusBadge status={alt.status} compact />
-                  </li>
-                );
-              })}
-            </ul>
+            <>
+              <p className="mb-2 text-sm text-ink-2">Acceptés à la place de « {p.name} » dans ces recettes seulement.</p>
+              <ul className="card divide-y divide-line">
+                {g.alternatives.map((id) => {
+                  const alt = byId.get(id);
+                  if (!alt) return null;
+                  const n = g.uses.filter((u) => u.alternatives.includes(id)).length;
+                  return (
+                    <li key={id} className="flex items-center gap-3 px-3 py-2.5">
+                      <Link to={`/produits/${id}`} className="min-w-0 flex-1 truncate font-medium hover:text-brand">
+                        {alt.name}
+                      </Link>
+                      {n < g.uses.length && (
+                        <span className="text-xs text-ink-3">
+                          {n} recette{n > 1 ? "s" : ""} sur {g.uses.length}
+                        </span>
+                      )}
+                      <span className="text-sm text-ink-2 tabular-nums">{stockLabel(alt)}</span>
+                      <StatusBadge status={alt.status} compact />
+                    </li>
+                  );
+                })}
+              </ul>
+              {!p.parentId && (
+                <button className="btn-soft mt-2 min-h-9 text-sm" disabled={bulk.isPending || link.isPending} onClick={toFamily}>
+                  <Layers className="size-4" /> En faire des déclinaisons de « {p.name} »
+                </button>
+              )}
+            </>
           )}
         </section>
       )}

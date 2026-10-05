@@ -14,6 +14,7 @@ type Draft = {
   name: string;
   brand: string | null;
   categoryId: string | null;
+  parentId: string | null;
   unit: string | null;
   defaultLocationId: string | null;
   quantity: number | null;
@@ -29,6 +30,7 @@ const original = (p: Product): Draft => ({
   name: p.name,
   brand: p.brand,
   categoryId: p.categoryId,
+  parentId: p.parentId,
   unit: p.unit,
   defaultLocationId: p.defaultLocationId,
   quantity: p.quantity,
@@ -38,11 +40,12 @@ const original = (p: Product): Draft => ({
 });
 
 /** Colonnes éditables, dans l'ordre (sert aussi à la navigation au clavier). */
-const COLS: Key[] = ["name", "brand", "categoryId", "unit", "defaultLocationId", "quantity", "minStock", "targetStock", "reference"];
+const COLS: Key[] = ["name", "brand", "categoryId", "parentId", "unit", "defaultLocationId", "quantity", "minStock", "targetStock", "reference"];
 
 /** Champs modifiables d'un coup sur la sélection. */
 const BULK_FIELDS: { key: Key; label: string }[] = [
   { key: "categoryId", label: "Catégorie" },
+  { key: "parentId", label: "Famille (générique)" },
   { key: "defaultLocationId", label: "Emplacement habituel" },
   { key: "unit", label: "Unité" },
   { key: "minStock", label: "Seuil mini" },
@@ -50,7 +53,7 @@ const BULK_FIELDS: { key: Key; label: string }[] = [
   { key: "brand", label: "Marque" },
 ];
 
-type SortKey = "name" | "brand" | "category" | "location" | "quantity" | "status";
+type SortKey = "name" | "brand" | "category" | "family" | "location" | "quantity" | "status";
 const STATUS_RANK = { out: 0, low: 1, watch: 2, ok: 3, none: 4 } as const;
 
 const treeOptions = (items: (Category | Location)[]): Option[] =>
@@ -86,6 +89,17 @@ export function BulkEditPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const byId = useMemo(() => new Map((products.data ?? []).map((p) => [p.id, p])), [products.data]);
+  // Familles : dans les lignes, les génériques existants ; dans la barre de sélection,
+  // n'importe quel produit sans famille (il devient alors générique).
+  const headIds = useMemo(() => new Set((products.data ?? []).map((p) => p.parentId).filter((v): v is string => !!v)), [products.data]);
+  const headOptions = useMemo(
+    () => [...headIds].map((id) => ({ value: id, label: byId.get(id)?.name || "Sans nom" })).sort((a, b) => a.label.localeCompare(b.label, "fr")),
+    [headIds, byId],
+  );
+  const familyOptions = useMemo(
+    () => (products.data ?? []).filter((p) => !p.parentId).map((p) => ({ value: p.id, label: `${p.name || "Sans nom"}${headIds.has(p.id) ? " (générique)" : ""}` })),
+    [products.data, headIds],
+  );
   const changedCount = Object.keys(edits).length;
   const dirty = changedCount > 0;
 
@@ -140,6 +154,8 @@ export function BulkEditPage() {
           return (p.brand ?? "￿").toLocaleLowerCase("fr");
         case "category":
           return p.categoryId ? pathLabel(cats, p.categoryId).toLocaleLowerCase("fr") : "￿";
+        case "family":
+          return (byId.get(p.parentId ?? (headIds.has(p.id) ? p.id : ""))?.name ?? "￿").toLocaleLowerCase("fr");
         case "location":
           return p.defaultLocationId ? pathLabel(locs, p.defaultLocationId).toLocaleLowerCase("fr") : "￿";
         case "quantity":
@@ -155,7 +171,7 @@ export function BulkEditPage() {
       return d * sort.dir || a.name.localeCompare(b.name, "fr");
     });
     // `edits` seulement pour le filtre « modifiés » : inutile de retrier à chaque frappe sinon.
-  }, [products.data, q, catFilter, locFilter, onlyChanged, onlyChanged ? edits : null, sort, cats, locs]);
+  }, [products.data, q, catFilter, locFilter, onlyChanged, onlyChanged ? edits : null, sort, cats, locs, byId, headIds]);
 
   /** Poignée de recopie : la valeur (modifiée ou non) de la ligne source va sur les lignes visées. */
   function onFill(c: number, from: number, to: number[]) {
@@ -165,8 +181,8 @@ export function BulkEditPage() {
     const value = { ...original(src), ...edits[src.id] }[key];
     for (const t of to) {
       const p = rows[t];
-      // Quantité répartie sur plusieurs emplacements : non modifiable ici.
-      if (!p || (key === "quantity" && p.stock.length > 1)) continue;
+      // Quantité répartie sur plusieurs emplacements : non modifiable ici. Un générique n'a pas de famille.
+      if (!p || (key === "quantity" && p.stock.length > 1) || (key === "parentId" && (headIds.has(p.id) || value === p.id))) continue;
       setCell(p.id, key, value);
     }
   }
@@ -315,7 +331,14 @@ export function BulkEditPage() {
             count={selected.size}
             catOptions={catOptions}
             locOptions={locOptions}
-            onApply={(key, value) => selected.forEach((id) => setCell(id, key, value))}
+            familyOptions={familyOptions}
+            onApply={(key, value) =>
+              selected.forEach((id) => {
+                // Un générique ne peut pas entrer dans une famille, ni un produit dans la sienne.
+                if (key === "parentId" && (headIds.has(id) || value === id)) return;
+                setCell(id, key, value);
+              })
+            }
             onDelete={removeSelected}
             onClear={() => setSelected(new Set())}
             busy={bulk.isPending}
@@ -344,6 +367,7 @@ export function BulkEditPage() {
                   {header("name", "Nom", "min-w-56")}
                   {header("brand", "Marque", "min-w-32")}
                   {header("category", "Catégorie", "min-w-44")}
+                  {header("family", "Famille", "min-w-40")}
                   {header(null, "Unité", "w-28")}
                   {header("location", "Empl. habituel", "min-w-44")}
                   {header("quantity", "Quantité", "w-36")}
@@ -364,6 +388,8 @@ export function BulkEditPage() {
                     selected={selected.has(p.id)}
                     catOptions={catOptions}
                     locOptions={locOptions}
+                    headOptions={headOptions}
+                    childCount={headIds.has(p.id) ? (products.data ?? []).filter((x) => x.parentId === p.id).length : 0}
                     locs={locs}
                     onChange={setCell}
                     onToggle={toggle}
@@ -410,12 +436,16 @@ type RowProps = {
   selected: boolean;
   catOptions: Option[];
   locOptions: Option[];
+  /** Génériques existants. */
+  headOptions: Option[];
+  /** Nombre de déclinaisons si ce produit est un générique. */
+  childCount: number;
   locs: Location[];
   onChange: (id: string, key: Key, value: Draft[Key]) => void;
   onToggle: (id: string) => void;
 };
 
-const Row = memo(function Row({ p, index, edit, selected, catOptions, locOptions, locs, onChange, onToggle }: RowProps) {
+const Row = memo(function Row({ p, index, edit, selected, catOptions, locOptions, headOptions, childCount, locs, onChange, onToggle }: RowProps) {
   const d = { ...original(p), ...edit };
   const changed = (k: Key) => !!edit && k in edit;
   const td = (k: Key) => `border-b border-line px-0.5 py-0.5 ${changed(k) ? "bg-brand-soft" : ""}`;
@@ -444,6 +474,23 @@ const Row = memo(function Row({ p, index, edit, selected, catOptions, locOptions
             </option>
           ))}
         </select>
+      </td>
+      <td className={td("parentId")}>
+        {childCount > 0 ? (
+          <span className="block px-2 py-1.5 whitespace-nowrap text-ink-2" title="Produit générique : ses déclinaisons se gèrent depuis sa fiche">
+            Générique <span className="text-xs text-ink-3">({childCount})</span>
+          </span>
+        ) : (
+          <select className={cellCls} value={d.parentId ?? ""} onChange={(e) => set("parentId", e.target.value || null)} {...nav("parentId")}>
+            <option value="">—</option>
+            {/* Le générique actuel reste proposé même s'il n'a plus d'autre déclinaison. */}
+            {[...headOptions, ...(p.parentId && !headOptions.some((o) => o.value === p.parentId) ? [{ value: p.parentId, label: "(générique actuel)" }] : [])].map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
       </td>
       <td className={td("unit")}>
         <input className={cellCls} list="bulk-units" value={d.unit ?? ""} placeholder="pièce" onChange={(e) => set("unit", e.target.value)} {...nav("unit")} />
@@ -497,6 +544,7 @@ function BulkBar({
   count,
   catOptions,
   locOptions,
+  familyOptions,
   onApply,
   onDelete,
   onClear,
@@ -505,6 +553,7 @@ function BulkBar({
   count: number;
   catOptions: Option[];
   locOptions: Option[];
+  familyOptions: Option[];
   onApply: (key: Key, value: Draft[Key]) => void;
   onDelete: () => void;
   onClear: () => void;
@@ -514,7 +563,7 @@ function BulkBar({
   const [text, setText] = useState("");
   const [num, setNum] = useState<number | null>(null);
   const isNum = field === "minStock" || field === "targetStock";
-  const options = field === "categoryId" ? catOptions : field === "defaultLocationId" ? locOptions : null;
+  const options = field === "categoryId" ? catOptions : field === "defaultLocationId" ? locOptions : field === "parentId" ? familyOptions : null;
 
   return (
     <div className="mx-4 mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-brand-soft px-3 py-2">

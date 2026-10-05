@@ -4,13 +4,12 @@
 // « pas assez » s'il en manque, manquant s'il n'y en a pas. Un ingrédient sans
 // quantité (« Sel ») est un basique : il ne bloque jamais la recette, on le
 // signale seulement s'il semble absent du stock.
-import { chooseProduct, servingsFactor, type NeedsProduct, type NeedsRecipe } from "./needs";
-import { convertQty, isBasicUnit, roundForPurchase } from "./units";
+import { recipeNeeds, type NeedsProduct, type NeedsRecipe } from "./needs";
 
 export type Missing = {
   productId: string;
   name: string;
-  /** Quantité à acheter pour pouvoir faire la recette (unité du produit), si chiffrable. */
+  /** Quantité à acheter pour pouvoir faire la recette, si chiffrable. */
   toBuy: number | null;
   unit: string | null;
   /** true : il y en a, mais pas assez. */
@@ -30,47 +29,25 @@ export type Cookable = {
 
 export type StockProduct = NeedsProduct & { hasStockLine: boolean };
 
+/**
+ * Même calcul que la liste de courses, pour une seule recette : un ingrédient
+ * générique (« Pâtes ») est disponible si la famille en a assez, toutes
+ * déclinaisons confondues ; un même produit utilisé deux fois s'additionne.
+ */
 export function cookability(recipe: NeedsRecipe, products: Map<string, StockProduct>, plannedServings: number | null = null): Cookable {
-  const factor = servingsFactor(plannedServings, recipe.servings);
-  // Plusieurs lignes du même produit (« 2 œufs » + « 1 œuf pour dorer ») : on additionne.
-  const needs = new Map<string, { qty: number | null; unit: string | null; basic: boolean }>();
-  for (const ing of recipe.ingredients) {
-    // Variantes acceptées : on cuisine avec celle qui est en stock.
-    const p = chooseProduct(ing, products, factor);
-    if (!p) continue;
-    const cur = needs.get(p.id);
-    // « 1 pincée de sel », « poivre à goût » : des basiques, même chiffrés.
-    if (ing.quantity == null || isBasicUnit(ing.unit)) {
-      if (!cur) needs.set(p.id, { qty: null, unit: p.unit, basic: true });
-      continue;
-    }
-    const q = convertQty(ing.quantity * factor, ing.unit, p.unit);
-    if (!cur || cur.basic) needs.set(p.id, { qty: q, unit: p.unit, basic: false });
-    else if (cur.qty != null && q != null) cur.qty += q;
-    else cur.qty = null; // unités incomparables : on sait seulement qu'il en faut
-  }
-
   let counted = 0;
   let available = 0;
   const missing: Missing[] = [];
   const basicsMissing: string[] = [];
-  for (const [id, need] of needs) {
-    const p = products.get(id)!;
-    const stock = p.quantity;
-    const present = (stock != null && stock > 0) || (stock == null && p.hasStockLine);
-    if (need.basic) {
-      if (!present) basicsMissing.push(p.name);
+  for (const n of recipeNeeds(recipe, plannedServings, products)) {
+    // « Sel », « 1 pincée de sel » : des basiques, jamais bloquants.
+    if (n.needed == null) {
+      if (!n.covered) basicsMissing.push(n.name);
       continue;
     }
     counted++;
-    if (!present) {
-      missing.push({ productId: id, name: p.name, toBuy: need.qty != null ? roundForPurchase(need.qty, p.unit) : null, unit: p.unit, short: false });
-    } else if (need.qty != null && stock != null && stock + 1e-9 < need.qty) {
-      missing.push({ productId: id, name: p.name, toBuy: roundForPurchase(need.qty - stock, p.unit), unit: p.unit, short: true });
-    } else {
-      // Présent, quantité suffisante ou inconnue (on fait confiance).
-      available++;
-    }
+    if (n.covered) available++;
+    else missing.push({ productId: n.productId, name: n.name, toBuy: n.toBuy, unit: n.unit, short: n.present });
   }
   return { recipeId: recipe.id, counted, available, missing, basicsMissing, complete: counted > 0 && missing.length === 0 };
 }

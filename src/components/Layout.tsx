@@ -65,7 +65,7 @@ export function Layout() {
   return (
     <div className="mx-auto min-h-dvh max-w-3xl">
       <OfflineBanner />
-      <main className="pb-28">
+      <main className="pb-28 short-landscape:pb-16">
         <Suspense fallback={<PageLoader />}>
           <Outlet />
         </Suspense>
@@ -78,7 +78,7 @@ export function Layout() {
               key={to}
               to={to}
               end={end}
-              className={({ isActive }) => `flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-[11px] font-semibold transition ${isActive ? "text-brand" : "text-ink-3"}`}
+              className={({ isActive }) => `flex flex-col items-center gap-0.5 pt-2.5 pb-2 text-[11px] font-semibold transition short-landscape:flex-row short-landscape:justify-center short-landscape:gap-1.5 short-landscape:py-1 ${isActive ? "text-brand" : "text-ink-3"}`}
             >
               {({ isActive }) => (
                 <>
