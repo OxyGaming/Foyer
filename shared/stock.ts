@@ -1,4 +1,5 @@
 // Règles de stock partagées entre le serveur et l'interface.
+import { convertQty } from "./units";
 
 export type StockStatus = "ok" | "watch" | "low" | "out" | "none";
 
@@ -49,4 +50,50 @@ export function quantityToBuy(
 
 export function roundQty(n: number): number {
   return Math.round(n * 1000) / 1000;
+}
+
+// Familles de produits : un générique (« Pâtes ») est jugé sur le stock cumulé
+// de toute sa famille ; ses déclinaisons n'ont pas d'alerte propre quand il a
+// un minimum (c'est la famille qui manque, pas « les coquillettes »).
+
+export type FamilyMember = { id: string; name: string; unit: string | null; quantity: number | null; hasStockLine: boolean };
+export type StockProduct = FamilyMember & { minStock: number | null; targetStock: number | null };
+
+/**
+ * Stock cumulé de `members` exprimé dans `unit`. `uncounted` : membres rangés
+ * mais hors du total (quantité non renseignée ou unité non convertible).
+ */
+export function familyQuantity<M extends FamilyMember>(unit: string | null, members: M[]): { quantity: number | null; uncounted: M[] } {
+  let total: number | null = null;
+  const uncounted: M[] = [];
+  for (const m of members) {
+    const q = m.quantity == null ? null : convertQty(m.quantity, m.unit, unit);
+    if (q == null) {
+      if (m.quantity != null ? m.quantity !== 0 : m.hasStockLine) uncounted.push(m);
+      continue;
+    }
+    total = (total ?? 0) + q;
+  }
+  return { quantity: total == null ? null : roundQty(total), uncounted };
+}
+
+export type StockState = {
+  status: StockStatus;
+  toBuy: number | null;
+  /** Sur un générique : stock de toute la famille, dans son unité. */
+  family: { quantity: number | null; uncounted: string[] } | null;
+};
+
+/** Statut et quantité à acheter d'un produit, en tenant compte de sa famille. */
+export function stockState<P extends StockProduct>(p: P, parent: P | undefined, children: P[]): StockState {
+  if (children.length) {
+    const { quantity, uncounted } = familyQuantity(p.unit, [p, ...children]);
+    return {
+      status: stockStatus(quantity, p.minStock),
+      toBuy: quantityToBuy(quantity, p.minStock, p.targetStock),
+      family: { quantity, uncounted: uncounted.map((m) => m.name) },
+    };
+  }
+  if (parent?.minStock != null) return { status: "none", toBuy: null, family: null };
+  return { status: stockStatus(p.quantity, p.minStock), toBuy: quantityToBuy(p.quantity, p.minStock, p.targetStock), family: null };
 }

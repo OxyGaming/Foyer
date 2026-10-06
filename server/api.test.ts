@@ -632,4 +632,30 @@ describe("familles de produits", () => {
     // 150 g + 0,15 kg en stock pour 400 g : 100 g de coquillettes (préférées), en kg.
     expect(items).toEqual([expect.objectContaining({ productId: coqu.id, name: "Coquillettes", unit: "kg", quantity: 0.1, stockQty: 0.3 })]);
   });
+
+  it("juge les seuils d'un générique sur le stock cumulé et réapprovisionne la déclinaison préférée", async () => {
+    const riz = (await fam.call("POST", "/products", { name: "Riz", unit: "kg", minStock: 2, targetStock: 3 })).body;
+    const basmati = (await fam.call("POST", "/products", { name: "Basmati", unit: "g", quantity: 1500, minStock: 5000 })).body;
+    const thai = (await fam.call("POST", "/products", { name: "Thaï", unit: "kg", quantity: 1 })).body;
+    await fam.call("POST", "/products/bulk", { updates: [{ id: basmati.id, parentId: riz.id }, { id: thai.id, parentId: riz.id }] });
+
+    const list = (await fam.call("GET", "/products")).body as { id: string; status: string; toBuy: number | null; family: unknown }[];
+    const get = (id: string) => list.find((p) => p.id === id)!;
+    // 1,5 kg + 1 kg = 2,5 kg ≥ minimum 2 kg ; Basmati n'a plus d'alerte propre.
+    expect(get(riz.id)).toMatchObject({ status: "ok", toBuy: null, family: { quantity: 2.5, uncounted: [] } });
+    expect(get(basmati.id)).toMatchObject({ status: "none", toBuy: null, family: null });
+
+    // Le Thaï baisse : 1,5 kg < 2 kg → il manque 1,5 kg pour la cible (3 kg).
+    const after = (await fam.call("POST", `/stock/${thai.stock[0].id}/adjust`, { delta: -1 })).body;
+    expect(after.status).toBe("none");
+    expect((await fam.call("GET", `/products/${riz.id}`)).body).toMatchObject({ status: "low", toBuy: 1.5, family: { quantity: 1.5 } });
+
+    // Réappro : une seule ligne pour la famille, en Basmati (préféré), dans son unité.
+    await fam.call("PATCH", `/products/${riz.id}`, { preferredId: basmati.id });
+    const restock = (await fam.call("POST", "/shopping/restock")).body;
+    const rice = restock.items.filter((i: { productId: string }) => [riz.id, basmati.id, thai.id].includes(i.productId));
+    expect(rice).toEqual([expect.objectContaining({ productId: basmati.id, unit: "g", quantity: 1500, stockQty: 1500, source: "restock" })]);
+    // Déjà sur la liste : pas de doublon.
+    expect((await fam.call("POST", "/shopping/restock")).body.added).toBe(0);
+  });
 });

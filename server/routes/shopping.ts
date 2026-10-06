@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { isIsoDate } from "../../shared/dates";
-import { computeNeeds, type NeedsProduct, type NeedsRecipe } from "../../shared/needs";
-import { quantityToBuy, stockStatus, totalQuantity } from "../../shared/stock";
+import { buyTarget, computeNeeds, type NeedsProduct, type NeedsRecipe } from "../../shared/needs";
+import { roundQty, stockState, totalQuantity } from "../../shared/stock";
 import { normalize } from "../../shared/text";
 import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
@@ -113,21 +113,45 @@ shoppingRoutes.post("/sync", async (c) => {
   return c.json(await listPayload(householdId));
 });
 
-/** Ajoute les produits sous leur seuil minimum qui ne sont pas déjà sur la liste. */
+/**
+ * Ajoute les produits sous leur seuil minimum qui ne sont pas déjà sur la liste.
+ * Une famille est jugée sur son stock cumulé et on achète sa déclinaison préférée.
+ */
 shoppingRoutes.post("/restock", async (c) => {
   const householdId = c.var.householdId;
   const list = await activeList(householdId);
   const products = await productsWithStock(householdId);
+  const byId = new Map(products.map((p) => [p.id, p]));
+  const childrenOf = new Map<string, typeof products>();
+  for (const p of products) if (p.parentId) childrenOf.set(p.parentId, [...(childrenOf.get(p.parentId) ?? []), p]);
   const onList = new Set(
     (await prisma.shoppingListItem.findMany({ where: { listId: list.id, checked: false, productId: { not: null } }, select: { productId: true } })).map((i) => i.productId),
   );
   let position = await nextPosition(list.id);
   let added = 0;
   for (const p of products) {
-    const toBuy = quantityToBuy(p.quantity, p.minStock, p.targetStock);
-    if (toBuy == null || stockStatus(p.quantity, p.minStock) === "ok" || onList.has(p.id)) continue;
+    const children = childrenOf.get(p.id) ?? [];
+    const state = stockState(p, p.parentId ? byId.get(p.parentId) : undefined, children);
+    if (state.toBuy == null || state.status === "ok") continue;
+    // Une famille déjà sur la liste (générique ou une déclinaison) n'est pas ajoutée deux fois.
+    if ([p, ...children].some((m) => onList.has(m.id))) continue;
+    const stock = state.family ? state.family.quantity : p.quantity;
+    // Quantités dans l'unité du générique : converties pour la déclinaison achetée, si possible.
+    const preferred = buyTarget(p, byId);
+    const target = convertQty(1, p.unit, preferred.unit) != null ? preferred : p;
+    const inTarget = (q: number) => roundQty(convertQty(q, p.unit, target.unit)!);
     await prisma.shoppingListItem.create({
-      data: { listId: list.id, householdId, productId: p.id, name: p.name, unit: p.unit, quantity: toBuy, stockQty: p.quantity, source: "restock", position: position++ },
+      data: {
+        listId: list.id,
+        householdId,
+        productId: target.id,
+        name: target.name,
+        unit: target.unit,
+        quantity: inTarget(state.toBuy),
+        stockQty: stock == null ? null : inTarget(stock),
+        source: "restock",
+        position: position++,
+      },
     });
     added++;
   }

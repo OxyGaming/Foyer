@@ -1,6 +1,6 @@
 import { DEFAULT_WEEK_START } from "../../shared/dates";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
+import { roundQty, stockState, totalQuantity } from "../../shared/stock";
 import { toast } from "sonner";
 import { api, isOfflineError } from "./api";
 import { toastError } from "./errors";
@@ -67,14 +67,30 @@ export const qcRef: { current: QueryClient | null } = { current: null };
 
 // ─── Produits & stock ────────────────────────────────────────────────────────
 
-/** Remplace un produit dans la liste en cache et dans son détail. */
+/**
+ * Recalcule les alertes de la liste : celles d'un générique dépendent du stock
+ * de ses déclinaisons, celles d'une déclinaison du minimum de son générique.
+ */
+function withFamilies(list: Product[]): Product[] {
+  const asStock = (p: Product) => ({ ...p, hasStockLine: p.stock.length > 0 });
+  const byId = new Map(list.map((p) => [p.id, p]));
+  const children = new Map<string, Product[]>();
+  for (const p of list) if (p.parentId) children.set(p.parentId, [...(children.get(p.parentId) ?? []), p]);
+  return list.map((p) => {
+    const parent = p.parentId ? byId.get(p.parentId) : undefined;
+    return { ...p, ...stockState(asStock(p), parent && asStock(parent), (children.get(p.id) ?? []).map(asStock)) };
+  });
+}
+
+/** Remplace un produit dans la liste en cache et dans son détail (et rafraîchit sa famille). */
 function putProduct(qc: QueryClient, p: Product) {
   qc.setQueryData<Product[]>(keys.products, (list) => {
     if (!list) return list;
     const i = list.findIndex((x) => x.id === p.id);
-    return i === -1 ? [...list, p].sort((a, b) => a.name.localeCompare(b.name, "fr")) : list.map((x) => (x.id === p.id ? p : x));
+    return withFamilies(i === -1 ? [...list, p].sort((a, b) => a.name.localeCompare(b.name, "fr")) : list.map((x) => (x.id === p.id ? p : x)));
   });
   qc.setQueryData<ProductDetail>(keys.product(p.id), (d) => (d ? { ...d, ...p } : d));
+  if (p.parentId) qc.invalidateQueries({ queryKey: keys.product(p.parentId), exact: true });
 }
 
 export function useSaveProduct() {
@@ -141,10 +157,9 @@ export function useDeleteProduct() {
   });
 }
 
-/** Recalcule localement total/statut après une modification optimiste. */
+/** Recalcule localement le total après une modification optimiste (les alertes : `withFamilies`). */
 function recompute<T extends Product>(p: T): T {
-  const quantity = totalQuantity(p.stock);
-  return { ...p, quantity, status: stockStatus(quantity, p.minStock), toBuy: quantityToBuy(quantity, p.minStock, p.targetStock) };
+  return { ...p, quantity: totalQuantity(p.stock) };
 }
 
 /** +1 / −1 instantané (optimiste), réconcilié avec la réponse du serveur. */
@@ -167,8 +182,9 @@ export function registerStockMutations(qc: QueryClient) {
           ...p,
           stock: p.stock.map((s) => (s.id === itemId ? { ...s, quantity: Math.max(0, roundQty((s.quantity ?? 0) + delta)) } : s)),
         });
-      qc.setQueryData<Product[]>(keys.products, (l) => l?.map((p) => (p.id === productId ? apply(p) : p)));
-      qc.setQueryData<ProductDetail>(keys.product(productId), (d) => (d ? apply(d) : d));
+      const list = qc.setQueryData<Product[]>(keys.products, (l) => l && withFamilies(l.map((p) => (p.id === productId ? apply(p) : p))));
+      const fresh = list?.find((p) => p.id === productId);
+      qc.setQueryData<ProductDetail>(keys.product(productId), (d) => (d ? { ...apply(d), ...(fresh && { status: fresh.status, toBuy: fresh.toBuy, family: fresh.family }) } : d));
     },
     // Plusieurs appuis en file : on n'écrase l'affichage qu'avec la dernière réponse.
     onSuccess: (p: Product) => {

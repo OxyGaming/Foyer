@@ -1,7 +1,6 @@
 import { Layers, Plus, Star, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { convertQty } from "../../shared/units";
 import { AlternativesSheet, ProductPickSheet } from "@/components/AlternativesSheet";
 import { StatusBadge } from "@/components/ui";
 import { formatQty } from "@/lib/format";
@@ -9,12 +8,6 @@ import { useBulkProducts, useSaveProduct } from "@/lib/queries";
 import type { Product } from "@/lib/types";
 
 const stockLabel = (p: Product) => (p.quantity != null ? formatQty(p.quantity, p.unit) : p.stock.length ? "en stock" : "pas en stock");
-
-/** Stock cumulé d'une famille dans l'unité du générique ; null si rien n'est comparable. */
-export function familyStock(head: Product, members: Product[]): number | null {
-  const parts = [head, ...members].map((m) => (m.quantity != null ? convertQty(m.quantity, m.unit, head.unit) : null)).filter((q): q is number => q != null);
-  return parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) * 1000) / 1000 : null;
-}
 
 /**
  * Famille d'un produit : un générique (« Pâtes ») et ses déclinaisons
@@ -38,7 +31,9 @@ export function FamilySection({ product: p, products }: { product: Product; prod
     if (head.id !== p.id) setParent([p.id], head.id);
   }
 
-  const total = isHead ? familyStock(p, children) : null;
+  const total = isHead ? p.family?.quantity : null;
+  const uncounted = isHead ? (p.family?.uncounted ?? []) : [];
+  const thresholds = [p.minStock != null && `minimum ${formatQty(p.minStock, p.unit)}`, p.targetStock != null && `cible ${formatQty(p.targetStock, p.unit)}`].filter(Boolean);
 
   return (
     <section>
@@ -56,6 +51,9 @@ export function FamilySection({ product: p, products }: { product: Product; prod
           <p className="mt-0.5 text-sm text-ink-2">
             Une recette qui demande « {parent.name} » peut utiliser ce produit. Une recette qui demande « {p.name} » n'accepte que lui.
           </p>
+          {parent.minStock != null && (
+            <p className="mt-1 text-sm text-ink-2">Les alertes de stock se font sur toute la famille « {parent.name} » : ce produit n'a pas d'alerte propre.</p>
+          )}
           {childrenOf(parent.id).length > 1 && (
             <p className="mt-1 text-xs text-ink-3">
               Avec :{" "}
@@ -85,6 +83,12 @@ export function FamilySection({ product: p, products }: { product: Product; prod
               Une recette qui demande « {p.name} » accepte n'importe lequel de ces produits, et leurs stocks s'additionnent. L'étoile désigne celui qu'on achète quand
               il en manque{p.preferredId ? "" : " (sinon c'est « " + p.name + " » qui part dans les courses)"}.
             </p>
+            {thresholds.length > 0 && <p className="mt-1 text-sm text-ink-2">Seuils de la famille ({thresholds.join(", ")}) : comparés au stock cumulé.</p>}
+            {uncounted.length > 0 && (
+              <p className="mt-1 text-sm text-watch">
+                Hors total (quantité inconnue ou unité non convertible en {p.unit || "unité du générique"}) : {uncounted.join(", ")}.
+              </p>
+            )}
           </div>
           <ul className="divide-y divide-line border-t border-line">
             {children.map((c) => {

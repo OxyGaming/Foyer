@@ -27,6 +27,7 @@ export function ProductRow({ p, locations, categories, showToBuy }: { p: Product
           <p className="truncate font-semibold">{p.name || "Produit sans nom"}</p>
           <p className="flex items-center gap-2 truncate text-xs text-ink-2">
             <StatusBadge status={p.status} />
+            {p.family?.quantity != null && <span className="shrink-0">Famille : {formatQty(p.family.quantity, p.unit)}</span>}
             {showToBuy && p.toBuy != null ? <span className="font-semibold text-ink">Acheter {formatQty(p.toBuy, p.unit)}</span> : where && <span className="truncate">{where}</span>}
             {!where && p.status === "none" && p.brand && <span className="truncate">{p.brand}</span>}
           </p>

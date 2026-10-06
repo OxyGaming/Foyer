@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { priceStats } from "../../shared/prices";
-import { quantityToBuy, roundQty, stockStatus, totalQuantity } from "../../shared/stock";
+import { roundQty, stockState, totalQuantity } from "../../shared/stock";
 import { productKey } from "../../shared/text";
 import { compatibleUnits, convertQty } from "../../shared/units";
 import { type AuthVars, requireAuth } from "../auth";
@@ -45,7 +45,10 @@ const productSelect = {
 } as const;
 
 type ProductRow = {
+  id: string;
+  name: string;
   unit: string | null;
+  parentId: string | null;
   minStock: number | null;
   targetStock: number | null;
   stockItems: { id: string; locationId: string | null; quantity: number | null; updatedAt: Date }[];
@@ -57,7 +60,30 @@ function pricing(p: ProductRow) {
   return stats && { count: stats.count, avgCents: stats.avgCents, last: stats.last, best: stats.best, history: stats.history };
 }
 
-function present<T extends ProductRow>(p: T, withHistory = false) {
+/** Ce qu'il faut d'une famille pour juger les seuils : générique et déclinaisons. */
+type FamilyRow = Pick<ProductRow, "id" | "name" | "unit" | "minStock" | "targetStock" | "parentId"> & { stockItems: { quantity: number | null }[] };
+type Family = { parent?: FamilyRow; children: FamilyRow[] };
+const familySelect = { id: true, name: true, unit: true, minStock: true, targetStock: true, parentId: true, stockItems: { select: { quantity: true } } } as const;
+
+const asStock = (r: FamilyRow) => ({ ...r, quantity: totalQuantity(r.stockItems), hasStockLine: r.stockItems.length > 0 });
+
+/** Familles de chaque produit d'une liste complète du foyer. */
+function familiesOf(rows: FamilyRow[]): (p: FamilyRow) => Family {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const children = new Map<string, FamilyRow[]>();
+  for (const r of rows) if (r.parentId) children.set(r.parentId, [...(children.get(r.parentId) ?? []), r]);
+  return (p) => ({ parent: p.parentId ? byId.get(p.parentId) : undefined, children: children.get(p.id) ?? [] });
+}
+
+async function familyOf(householdId: string, p: FamilyRow): Promise<Family> {
+  const rows = await prisma.product.findMany({
+    where: { householdId, OR: [{ parentId: p.id }, ...(p.parentId ? [{ id: p.parentId }] : [])] },
+    select: familySelect,
+  });
+  return { parent: rows.find((r) => r.id === p.parentId), children: rows.filter((r) => r.parentId === p.id) };
+}
+
+function present<T extends ProductRow>(p: T, family: Family, withHistory = false) {
   const { stockItems, purchases: _purchases, ...rest } = p;
   const quantity = totalQuantity(stockItems);
   const price = pricing(p);
@@ -65,8 +91,7 @@ function present<T extends ProductRow>(p: T, withHistory = false) {
     ...rest,
     stock: stockItems,
     quantity,
-    status: stockStatus(quantity, p.minStock),
-    toBuy: quantityToBuy(quantity, p.minStock, p.targetStock),
+    ...stockState(asStock(p), family.parent && asStock(family.parent), family.children.map(asStock)),
     // Sans prix exploitable : null (on n'invente pas de valeur).
     pricing: price && (withHistory ? price : { ...price, history: undefined }),
   };
@@ -111,13 +136,20 @@ async function loadProduct(householdId: string, id: string) {
   return p;
 }
 
+/** Un produit prêt à renvoyer, statut calculé avec sa famille. */
+async function presentOne(householdId: string, id: string) {
+  const p = await loadProduct(householdId, id);
+  return present(p, await familyOf(householdId, p));
+}
+
 productRoutes.get("/", async (c) => {
   const products = await prisma.product.findMany({
     where: { householdId: c.var.householdId },
     orderBy: { name: "asc" },
     select: productSelect,
   });
-  return c.json(products.map((p) => present(p)));
+  const familyFor = familiesOf(products);
+  return c.json(products.map((p) => present(p, familyFor(p))));
 });
 
 productRoutes.get("/:id", async (c) => {
@@ -146,7 +178,7 @@ productRoutes.get("/:id", async (c) => {
       select: { id: true, date: true, quantity: true, unit: true, totalCents: true, isPromo: true, note: true, store: { select: { name: true } } },
     }),
   ]);
-  return c.json({ ...present(p, true), movements, recipes, purchases });
+  return c.json({ ...present(p, await familyOf(householdId, p), true), movements, recipes, purchases });
 });
 
 /**
@@ -195,7 +227,7 @@ productRoutes.post("/", async (c) => {
     }
     return { id: productId, reused: !!twin };
   });
-  return c.json({ ...present(await loadProduct(householdId, id)), reused }, reused ? 200 : 201);
+  return c.json({ ...(await presentOne(householdId, id)), reused }, reused ? 200 : 201);
 });
 
 /**
@@ -264,7 +296,7 @@ productRoutes.post("/:id/merge", async (c) => {
     await tx.product.delete({ where: { id: source.id } });
   });
   if (source.photoId && source.photoId !== target.photoId && target.photoId != null) await releasePhoto(source.photoId);
-  return c.json(present(await loadProduct(householdId, target.id)));
+  return c.json(await presentOne(householdId, target.id));
 });
 
 const bulkInput = z.object({
@@ -320,7 +352,8 @@ productRoutes.post("/bulk", async (c) => {
   for (const id of deletes) await releasePhoto(byId.get(id)!.photoId);
 
   const products = await prisma.product.findMany({ where: { householdId }, orderBy: { name: "asc" }, select: productSelect });
-  return c.json(products.map((p) => present(p)));
+  const familyFor = familiesOf(products);
+  return c.json(products.map((p) => present(p, familyFor(p))));
 });
 
 productRoutes.patch("/:id", async (c) => {
@@ -331,7 +364,7 @@ productRoutes.patch("/:id", async (c) => {
   if (body.parentId !== undefined || body.preferredId !== undefined) await assertFamilies(householdId, [{ id: existing.id, parentId: body.parentId, preferredId: body.preferredId }]);
   await prisma.product.update({ where: { id: existing.id }, data: body });
   if (body.photoId !== undefined && body.photoId !== existing.photoId) await releasePhoto(existing.photoId);
-  return c.json(present(await loadProduct(householdId, existing.id)));
+  return c.json(await presentOne(householdId, existing.id));
 });
 
 productRoutes.delete("/:id", async (c) => {
@@ -351,7 +384,7 @@ productRoutes.post("/:id/stock", async (c) => {
   await prisma.$transaction((tx) =>
     setStock(tx, { householdId, productId: p.id, locationId: body.locationId, quantity: body.quantity, type: body.inventory ? "inventory" : "adjust", userId: c.var.userId }),
   );
-  return c.json(present(await loadProduct(householdId, p.id)));
+  return c.json(await presentOne(householdId, p.id));
 });
 
 // ─── Lignes de stock ─────────────────────────────────────────────────────────
@@ -373,7 +406,7 @@ stockRoutes.post("/:id/adjust", async (c) => {
   await prisma.$transaction((tx) =>
     setStock(tx, { householdId, productId: item.productId, locationId: item.locationId, quantity, type: delta < 0 ? "consume" : "adjust", userId: c.var.userId }),
   );
-  return c.json(present(await loadProduct(householdId, item.productId)));
+  return c.json(await presentOne(householdId, item.productId));
 });
 
 /** Modifie la quantité et/ou déplace la ligne (fusion si l'emplacement cible a déjà une ligne). */
@@ -401,7 +434,7 @@ stockRoutes.patch("/:id", async (c) => {
       await setStock(tx, { householdId, productId: item.productId, locationId: current.locationId, quantity: body.quantity, type: body.inventory ? "inventory" : "adjust", userId: c.var.userId });
     }
   });
-  return c.json(present(await loadProduct(householdId, item.productId)));
+  return c.json(await presentOne(householdId, item.productId));
 });
 
 stockRoutes.delete("/:id", async (c) => {
@@ -413,7 +446,7 @@ stockRoutes.delete("/:id", async (c) => {
     });
     await tx.stockItem.delete({ where: { id: item.id } });
   });
-  return c.json(present(await loadProduct(householdId, item.productId)));
+  return c.json(await presentOne(householdId, item.productId));
 });
 
 // ─── Écriture du stock + mouvement ───────────────────────────────────────────

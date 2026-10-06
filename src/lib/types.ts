@@ -52,8 +52,11 @@ export type Product = {
   updatedAt: string;
   stock: StockLine[];
   quantity: number | null;
+  /** Alerte et achat suggéré ; sur un générique, jugés sur le stock de toute la famille. */
   status: StockStatus;
   toBuy: number | null;
+  /** Sur un générique : stock cumulé de la famille (son unité) et produits rangés hors total. */
+  family: { quantity: number | null; uncounted: string[] } | null;
   /** Résumé des prix d'achat ; null si aucun prix exploitable. */
   pricing: Pricing | null;
 };
